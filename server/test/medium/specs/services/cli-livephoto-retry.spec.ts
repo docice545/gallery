@@ -283,7 +283,7 @@ describe('CLI failed empty Live Photo receipts', () => {
     expect(await readFile(f.still.originalPath, 'utf8')).toBe('synthetic Live Photo JPG');
     await expect(readFile(f.motion.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
     expect(await f.sut.permanentlyDelete(f.auth, [f.still.id])).toEqual([
-      { id: f.still.id, state: 'complete', scope: 'managed' },
+      { id: f.still.id, accepted: true, state: 'complete', scope: 'managed' },
     ]);
     await expect(readFile(f.still.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
     const complete = await receipts(f.user.id, f.still.id);
@@ -298,7 +298,7 @@ describe('CLI failed empty Live Photo receipts', () => {
     expect(f.mocks.event.emit).toHaveBeenCalledTimes(2);
     expect(f.mocks.job.queue).not.toHaveBeenCalledWith(expect.objectContaining({ name: JobName.FileDelete }));
     expect(await f.sut.permanentlyDelete(f.auth, [f.still.id])).toEqual([
-      { id: f.still.id, state: 'complete', scope: 'managed' },
+      { id: f.still.id, accepted: true, state: 'complete', scope: 'managed' },
     ]);
     expect(f.mocks.event.emit).toHaveBeenCalledTimes(2);
   });
@@ -317,7 +317,7 @@ describe('CLI failed empty Live Photo receipts', () => {
     });
     snapshot.mockRestore();
     expect(await f.sut.permanentlyDelete(f.auth, [f.still.id])).toEqual([
-      { id: f.still.id, state: 'complete', scope: 'managed' },
+      { id: f.still.id, accepted: true, state: 'complete', scope: 'managed' },
     ]);
     const complete = await receipts(f.user.id, f.still.id);
     expect(complete.every(({ state }) => state === 'complete')).toBe(true);

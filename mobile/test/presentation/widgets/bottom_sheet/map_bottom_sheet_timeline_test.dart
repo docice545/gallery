@@ -33,6 +33,7 @@ import 'package:mocktail/mocktail.dart';
 // ignore: depend_on_referenced_packages
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../fixtures/haptics.dart';
 import '../../../test_utils.dart';
 import '../../../widget_tester_extensions.dart';
 
@@ -122,6 +123,7 @@ Future<_Harness> _pumpMapTimeline(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        testHapticsOverride,
         currentUserProvider.overrideWith((ref) => _StubCurrentUserNotifier(userService, user)),
         readonlyModeProvider.overrideWith(() => _StubReadOnlyModeNotifier()),
         appConfigProvider.overrideWithValue(const AppConfig(timeline: TimelineConfig(tilesPerRow: 3))),

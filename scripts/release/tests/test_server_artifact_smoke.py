@@ -137,6 +137,27 @@ class ArtifactIdentity(SmokeFixture):
 
 
 class SignedLabContract(SmokeFixture):
+    def test_local_lab_requires_exact_command_line_opt_in(self):
+        with patch.dict(os.environ, {'GALLERY_LOCAL_DISPOSABLE_LAB': '1'}, clear=True), \
+                patch('sys.argv', ['smoke', SOURCE, str(self.directory)]), \
+                patch.object(smoke, 'verify_artifact') as verify, redirect_stdout(io.StringIO()):
+            self.assertEqual(smoke.main(), 1)
+            verify.assert_not_called()
+        self.assertFalse(smoke._local_disposable_lab)
+
+    def test_local_lab_checks_artifact_and_releases_scope_on_failure(self):
+        def reject(*args):
+            smoke.require_lab()
+            raise RuntimeError('ARTIFACT_ARCHIVE_CHANGED')
+        with patch.dict(os.environ, {}, clear=True), \
+                patch('sys.argv', ['smoke', '--local-disposable-lab', SOURCE, str(self.directory)]), \
+                patch.object(smoke, 'verify_artifact', side_effect=reject) as verify, \
+                patch.object(smoke, 'docker') as docker, redirect_stdout(io.StringIO()):
+            self.assertEqual(smoke.main(), 1)
+            verify.assert_called_once_with(self.directory, SOURCE)
+            docker.assert_not_called()
+        self.assertFalse(smoke._local_disposable_lab)
+
     def test_key_generation_and_evidence_are_refused_outside_explicit_lab(self):
         with patch.dict(os.environ, {}, clear=True), patch.object(smoke.subprocess, 'run') as run:
             for function, args in ((smoke.lab_keys, ()), (smoke.lab_payload, (OWNER, [root_identity()], POSTGRES_IMAGE)),
@@ -318,6 +339,11 @@ class SmokeLifecycle(SmokeFixture):
             elif path == '/assets' and method == 'DELETE': state['trashed'] = True
             elif path == '/assets/' + ASSET:
                 result = {'isTrashed': state['trashed'], 'fileCreatedAt': '2024-05-06', 'localDateTime': '2024-05-06'}
+            elif path == '/assets/' + ASSET + '/original?edited=false' and method == 'HEAD':
+                reply = io.BytesIO()
+                reply.status = 200
+                reply.headers = {'Content-Length': str(len(media))}
+                return reply
             elif path == '/assets/' + ASSET + '/original':
                 if state['deleted']: raise urllib.error.HTTPError('unused', 404, 'fixture', {}, None)
                 return io.BytesIO(media)
@@ -328,7 +354,7 @@ class SmokeLifecycle(SmokeFixture):
             elif path == '/assets/permanent-deletion':
                 if state['enabled']:
                     state['deleted'] = True
-                    result = [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}]
+                    result = [{'id': ASSET, 'scope': 'managed', 'accepted': True, 'state': 'complete'}]
                 else: result = [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
             elif path == '/users/me': result = {'id': OWNER}
             elif path == '/assets/managed-deletion-preparation':
@@ -340,7 +366,7 @@ class SmokeLifecycle(SmokeFixture):
                 state['enabled'] = body['enabled']
             elif path == '/assets/managed-deletion-policy':
                 result = {'enabled': state['enabled'], 'prepared': state['prepared'], 'canPrepare': False}
-            elif path == '/assets/' + ASSET + '/deletion-status': result = {'id': ASSET, 'state': 'complete'}
+            elif path == '/assets/' + ASSET + '/deletion-status': result = {'id': ASSET, 'accepted': True, 'state': 'complete'}
             elif path != '/auth/admin-sign-up': self.fail('Unexpected mocked route: ' + path)
             return io.BytesIO(json.dumps(result).encode() if result is not None else b'')
         opener = Mock()
@@ -373,6 +399,7 @@ class SmokeLifecycle(SmokeFixture):
         self.assertEqual(completed['isolatedWorkerConfiguration'], 'API_AND_MICROSERVICES')
         self.assertEqual(completed['thumbnailPreviewVerification'], 'PASS_SYNTHETIC_FILES_AND_HTTP')
         self.assertIn('ordinary owner consent', completed['isolatedSmoke'])
+        self.assertIn(('/assets/' + ASSET + '/original?edited=false', 'HEAD'), requests)
         thumbnails.assert_called_once()
         external.assert_called_once()
         self.assertEqual(len([call for call in calls if call[0] == 'rm']), 3)
@@ -384,7 +411,7 @@ class Build11OrdinaryStorage(SmokeFixture):
         request = Mock(side_effect=[None,
             [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}],
             media, None, {'enabled': True, 'prepared': True, 'canPrepare': False},
-            [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}], {'id': ASSET, 'state': 'complete'}])
+            [{'id': ASSET, 'scope': 'managed', 'accepted': True, 'state': 'complete'}], {'id': ASSET, 'accepted': True, 'state': 'complete'}])
         with patch.object(smoke, 'publish_lab_evidence') as publish:
             smoke.ordinary_managed_smoke(request, ASSET, media)
         publish.assert_not_called()
@@ -393,13 +420,32 @@ class Build11OrdinaryStorage(SmokeFixture):
         self.assertEqual(calls[3], ('/assets/managed-deletion-consent', 'PUT', {'enabled': True, 'confirmed': True}))
         self.assertFalse(any('preparation' in call[0] for call in calls))
 
+    def test_incomplete_managed_receipt_preserves_gate_with_sanitized_diagnostics(self):
+        request = Mock(side_effect=[None,
+            [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}],
+            b'fixture', None, {'enabled': True, 'prepared': True, 'canPrepare': False},
+            [{'id': ASSET, 'scope': 'managed', 'state': 'pending', 'code': 'FILE_BUSY'},
+             {'id': 'private-id', 'state': 'private-state', 'code': '/private/token'}]])
+        with self.assertRaisesRegex(RuntimeError, '^MANAGED_DELETION_NOT_COMPLETE states=pending,unknown codes=FILE_BUSY,UNKNOWN$'):
+            smoke.ordinary_managed_smoke(request, ASSET, b'fixture')
+        self.assertEqual(request.call_count, 6)
+
+    def test_complete_without_durable_acceptance_is_not_accepted(self):
+        request = Mock(side_effect=[None,
+            [{'id': ASSET, 'scope': 'managed', 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}],
+            b'fixture', None, {'enabled': True, 'prepared': True, 'canPrepare': False},
+            [{'id': ASSET, 'scope': 'managed', 'state': 'complete'}]])
+        with self.assertRaisesRegex(RuntimeError, 'MANAGED_DELETION_NOT_COMPLETE'):
+            smoke.ordinary_managed_smoke(request, ASSET, b'fixture')
+        self.assertEqual(request.call_count, 6)
+
     def test_external_physical_success_requires_default_denial_owner_consent_and_file_absence(self):
         scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
         media = smoke.synthetic_png(22)
         request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, media,
             [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
-            [{'id': ASSET, 'scope': scope, 'state': 'complete'}]])
-        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], True, [], []]) as storage:
+            [{'id': ASSET, 'scope': scope, 'accepted': True, 'state': 'complete'}]])
+        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/tmp/gallery-build38-external-ci'}, [ASSET], True, [], []]) as storage:
             result = smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
         self.assertTrue(result['ownerWritablePhysicalDeletion'])
         self.assertFalse(result['productionNFSVerified'])
@@ -412,8 +458,8 @@ class Build11OrdinaryStorage(SmokeFixture):
         scope = 'bbbbbbbb-1111-4444-8888-aaaaaaaaaaaa'
         request = Mock(side_effect=[{'id': scope}, None, None, {'isTrashed': True}, smoke.synthetic_png(22),
             [{'id': ASSET, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}], None,
-            [{'id': ASSET, 'scope': scope, 'state': 'complete'}]])
-        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/data/build11-external-ci'}, [ASSET], False]), self.assertRaises(AssertionError):
+            [{'id': ASSET, 'scope': scope, 'accepted': True, 'state': 'complete'}]])
+        with patch.object(smoke, 'storage_fixture', side_effect=[{'root': '/tmp/gallery-build38-external-ci'}, [ASSET], False]), self.assertRaises(AssertionError):
             smoke.external_smoke(request, 'gallery-trash-ci-123456789abc-server', OWNER)
 
     def test_runtime_fixture_refuses_production_container_before_any_exec(self):

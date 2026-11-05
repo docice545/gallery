@@ -46,6 +46,8 @@ class MainActivity : FlutterFragmentActivity() {
     fun registerPlugins(ctx: Context, flutterEngine: FlutterEngine) {
       HttpClientManager.initialize(ctx)
       NativeVideoPlayerPlugin.dataSourceFactory = HttpClientManager::createDataSourceFactory
+      flutterEngine.plugins.add(app.alextran.immich.recovery.SqliteRecoveryPlugin())
+      flutterEngine.plugins.add(app.alextran.immich.cloudmedia.CloudSqliteBridgePlugin())
       flutterEngine.plugins.add(NetworkApiPlugin())
       flutterEngine.plugins.add(LocalFilesManagerPlugin())
       flutterEngine.plugins.add(OriginalSharePlugin())

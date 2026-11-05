@@ -4,8 +4,20 @@ class PermanentDeletionResult {
   final String? code;
   final String? scope;
   final String? batchId;
-  const PermanentDeletionResult({required this.id, required this.state, this.code, this.scope, this.batchId});
+  final bool serverAccepted;
+  const PermanentDeletionResult({
+    required this.id,
+    required this.state,
+    this.code,
+    this.scope,
+    this.batchId,
+    this.serverAccepted = false,
+  });
   bool get complete => state == 'complete';
+
+  /// Only a durable server acknowledgement (or physical completion) proves
+  /// irreversibility. A queued legacy batch is not an accepted deletion.
+  bool get accepted => serverAccepted || complete;
 }
 
 class PermanentDeletionBatchStatus {

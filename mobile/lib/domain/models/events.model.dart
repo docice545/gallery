@@ -9,6 +9,15 @@ class ScrollToTopEvent extends Event {
   const ScrollToTopEvent();
 }
 
+/// Emitted only after verified OS removal and the corresponding cache commit.
+/// Empty/loading Timeline emissions are deliberately not deletion evidence.
+class DeviceTrashAcknowledgedEvent extends Event {
+  final Set<String> albumIds;
+  final Set<String> assetIds;
+
+  const DeviceTrashAcknowledgedEvent({required this.albumIds, required this.assetIds});
+}
+
 // Asset Viewer Events
 class ViewerShowDetailsEvent extends Event {
   const ViewerShowDetailsEvent();
@@ -20,8 +29,10 @@ class ViewerReloadAssetEvent extends Event {
 
 class ViewerStackAssetDeletedEvent extends Event {
   final int stackIndex;
+  final String assetId;
+  final String stackId;
 
-  const ViewerStackAssetDeletedEvent({required this.stackIndex});
+  const ViewerStackAssetDeletedEvent({required this.stackIndex, required this.assetId, required this.stackId});
 }
 
 // Multi-Select Events

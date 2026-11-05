@@ -62,8 +62,13 @@ class AssetService {
     }
 
     final stack = await _remoteRepository.getStackChildren(asset);
-    // Include the primary asset in the stack as the first item
-    return [asset, ...stack];
+    // The supplied primary may already have been moved to Trash.
+    // Read its current state instead of blindly adding a stale cover.
+    final primary = await _remoteRepository.get(asset.id);
+    if (primary == null || primary.deletedAt != null) {
+      return stack;
+    }
+    return [primary, ...stack];
   }
 
   /// Resolve explicitly selected collapsed covers before any Trash mutation.
@@ -248,6 +253,35 @@ class AssetService {
     final results = await deleteWithResults(remoteIds);
     if (results.any((result) => !result.complete)) {
       throw StateError('Some permanent deletions require attention');
+    }
+  }
+
+  /// Completes once the server has durably admitted the captured selection.
+  /// Files are deleted by the existing server worker, never by MediaStore here.
+  Future<List<PermanentDeletionResult>> acceptPermanentDeletion(List<String> remoteIds) async {
+    if (remoteIds.isEmpty) {
+      return const [];
+    }
+    final snapshots = await _remoteRepository.beginPermanentDeletion(remoteIds);
+    try {
+      final results = await _apiRepository.acceptPermanentDeletion(remoteIds);
+      await _remoteRepository.acceptPermanentDeletion(
+        snapshots,
+        results.where((result) => result.accepted).map((result) => result.id).toList(),
+        results.where((result) => result.complete).map((result) => result.id).toList(),
+      );
+      for (final result in results.where((result) => !result.accepted)) {
+        final checked = snapshots.where((snapshot) => snapshot.id == result.id).toList();
+        await _remoteRepository.completeTrashOperation(
+          checked,
+          success: false,
+          definiteFailure: result.state == 'blocked',
+        );
+      }
+      return results;
+    } catch (error, stack) {
+      await _remoteRepository.completeTrashOperation(snapshots, success: false);
+      Error.throwWithStackTrace(error, stack);
     }
   }
 

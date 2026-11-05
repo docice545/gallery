@@ -6,11 +6,16 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/data/db/main/table/user/auth_user.drift.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
+import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/pending_local_trash.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/sync_event.model.dart';
+import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/services/store.service.dart';
 import 'package:immich_mobile/domain/services/sync_stream.service.dart';
@@ -20,6 +25,7 @@ import 'package:immich_mobile/infrastructure/repositories/remote_asset.repositor
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_api.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/timeline.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/trashed_local_asset.repository.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:immich_mobile/utils/semver.dart';
@@ -118,6 +124,8 @@ void main() {
 
   setUp(() async {
     mockSyncStreamRepo = MockSyncStreamRepository();
+    when(() => mockSyncStreamRepo.needsFreshLibraryDownload()).thenAnswer((_) async => false);
+    when(() => mockSyncStreamRepo.markFreshLibraryDownloadReady()).thenAnswer((_) async {});
     when(() => mockSyncStreamRepo.flushDeferredMemoryAssetsV2()).thenAnswer((_) async {});
     when(() => mockSyncStreamRepo.getRestoreCandidates(any())).thenAnswer((_) async => []);
     mockSyncApiRepo = MockSyncApiRepository();
@@ -294,6 +302,97 @@ void main() {
     });
     await sut.sync();
   }
+
+  for (final failedStage in ['version', 'stream']) {
+    test('offline $failedStage request preserves the loaded SQLite catalog and merged identities', () async {
+      final context = MediumRepositoryContext();
+      addTearDown(context.dispose);
+      await context.newUser(id: 'offline-owner');
+      await context.newAuthUser(id: 'offline-owner');
+      await context.newLocalAlbum(id: 'camera', backupSelection: BackupSelection.selected);
+      for (final id in ['device-only', 'device-copy']) {
+        await context.newLocalAsset(id: id, checksum: id, createdAt: DateTime(2026));
+        await context.newLocalAlbumAsset(albumId: 'camera', assetId: id);
+      }
+      await context.newRemoteAsset(
+        id: 'server-copy',
+        checksum: 'device-copy',
+        ownerId: 'offline-owner',
+        createdAt: DateTime(2026),
+      );
+      await context.newRemoteAsset(id: 'server-only', ownerId: 'offline-owner', createdAt: DateTime(2026));
+      final query = TimelineRepository(context.db).main(['offline-owner'], 'offline-owner', GroupAssetsBy.day);
+      Future<void> expectCatalog() async {
+        final assets = await query.assetSource(0, 20);
+        expect(assets.map((asset) => asset.id), unorderedEquals(['device-only', 'server-copy', 'server-only']));
+        expect(assets.singleWhere((asset) => asset.id == 'server-copy').localId, 'device-copy');
+      }
+
+      await expectCatalog();
+      sut = SyncStreamService(
+        syncApiRepository: mockSyncApiRepo,
+        syncStreamRepository: SyncStreamRepository(context.db),
+        localAssetRepository: mockLocalAssetRepo,
+        trashedLocalAssetRepository: mockTrashedLocalAssetRepo,
+        assetMediaRepository: mockAssetMediaRepo,
+        permissionRepository: mockPermissionRepo,
+        syncMigrationRepository: mockSyncMigrationRepo,
+        api: mockApi,
+      );
+      final unavailable = ApiException(0, 'Synthetic unavailable Backend');
+      if (failedStage == 'version') {
+        when(() => mockServerApi.getServerVersion()).thenThrow(unavailable);
+      } else {
+        when(
+          () => mockSyncApiRepo.streamChanges(
+            any(),
+            onReset: any(named: 'onReset'),
+            serverVersion: any(named: 'serverVersion'),
+            supportedSyncTypes: any(named: 'supportedSyncTypes'),
+            abortSignal: any(named: 'abortSignal'),
+          ),
+        ).thenThrow(unavailable);
+      }
+      await expectLater(sut.sync(), throwsA(same(unavailable)));
+      await expectCatalog();
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+      verifyNever(() => mockAssetMediaRepo.deleteAll(any()));
+    });
+  }
+
+  test('does not advance the sync cursor when updateAssetsV2 reports SQLite corruption', () async {
+    final asset = SyncAssetV2(
+      id: 'corrupt-asset',
+      checksum: 'corrupt-checksum',
+      originalFileName: 'corrupt.jpg',
+      type: AssetTypeEnum.IMAGE,
+      ownerId: 'owner',
+      isFavorite: false,
+      fileCreatedAt: DateTime(2026, 10, 29),
+      fileModifiedAt: DateTime(2026, 10, 29),
+      createdAt: DateTime(2026, 10, 29),
+      localDateTime: DateTime(2026, 10, 29),
+      visibility: AssetVisibility.timeline,
+      width: 100,
+      height: 100,
+      deletedAt: null,
+      duration: null,
+      libraryId: null,
+      livePhotoVideoId: null,
+      stackId: null,
+      thumbhash: null,
+      isEdited: false,
+    );
+    when(
+      () => mockSyncStreamRepo.updateAssetsV2(any()),
+    ).thenThrow(const SqliteDatabaseUnhealthy('updateAssetsV2[user]', 779));
+
+    await expectLater(
+      simulateEvents([SyncEvent(type: SyncEntityType.assetV2, data: asset, ack: 'cursor-after-corruption')]),
+      throwsA(isA<SqliteDatabaseUnhealthy>()),
+    );
+    verifyNever(() => mockSyncApiRepo.ack(any()));
+  });
 
   group('SyncStreamService - authoritative restore confirmation', () {
     late MediumRepositoryContext context;
@@ -496,7 +595,12 @@ void main() {
       when(() => assetsApi.getAssetInfo('remote-1')).thenThrow(ApiException(0, 'offline'));
       await expectLater(sut.sync(), throwsA(isA<ApiException>()));
       expect(await repository.getPendingTrashOperations(), hasLength(1));
-      expect((await remote.get('remote-1'))!.isTrashed, isTrue);
+      expect(
+        (await remote.get('remote-1'))!.isTrashed,
+        isTrue,
+        reason: 'This fixture was already in Trash; presentation rollback must not resurrect it',
+      );
+      expect(await repository.getRetainedTrashIds('owner'), contains('remote-1'));
       when(() => assetsApi.getAssetInfo('remote-1')).thenAnswer((_) async => currentAsset(isTrashed: false));
       expect(await sut.sync(), isTrue);
       expect((await remote.get('remote-1'))!.isTrashed, isFalse);
@@ -1360,6 +1464,163 @@ void main() {
       verifyNever(() => mockAssetMediaRepo.restoreAssetsFromTrash(any()));
       verifyNever(() => mockTrashedLocalAssetRepo.applyRestoredAssets(any()));
       verifyNever(() => mockAssetMediaRepo.deleteAll(any(), trash: false));
+    });
+  });
+
+  group('durable deletion receipt replay', () {
+    setUp(() {
+      final features = makeServerFeatures()..authorizedDeletion = const Optional.present(true);
+      when(() => mockServerApi.getServerFeatures()).thenAnswer((_) async => features);
+      when(() => mockSyncStreamRepo.retainPermanentDeletion(any())).thenAnswer((_) async {});
+      when(() => mockSyncStreamRepo.retainPermanentDeletion(any(), complete: false)).thenAnswer((_) async {});
+    });
+
+    SyncEvent deletion(String id, String ack) => SyncEvent(
+      type: SyncEntityType.assetDeleteV1,
+      data: SyncAssetDeleteV1(assetId: id),
+      ack: ack,
+    );
+
+    void receipts(Future<http.Response> Function(http.Request) handler) {
+      final client = ApiClient(basePath: 'https://fixture.invalid/api')..client = MockClient(handler);
+      when(() => mockApi.apiClient).thenReturn(client);
+      addTearDown(client.client.close);
+    }
+
+    test('logical and physical events retain one receipt but apply every event before ACK', () async {
+      final requests = <List<String>>[];
+      receipts((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requests.add(ids);
+        return http.Response(
+          jsonEncode(ids.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()),
+          200,
+        );
+      });
+      final events = [deletion('same', 'logical'), deletion('same', 'physical')];
+
+      await simulateEvents(events);
+      await simulateEvents(events);
+
+      expect(requests, [
+        ['same'],
+        ['same'],
+      ]);
+      final applied = verify(() => mockSyncStreamRepo.deleteAssetsV1(captureAny())).captured;
+      expect(applied, hasLength(2));
+      for (final batch in applied.cast<List<SyncAssetDeleteV1>>()) {
+        expect(batch.map((event) => event.assetId), ['same', 'same']);
+      }
+      verify(() => mockSyncStreamRepo.retainPermanentDeletion(['same'], complete: false)).called(2);
+      verify(() => mockSyncApiRepo.ack(['physical'])).called(2);
+    });
+
+    test('incomplete receipts keep the checkpoint and retry the same events after recovery', () async {
+      final requests = <List<String>>[];
+      receipts((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requests.add(ids);
+        return http.Response(
+          jsonEncode([
+            {'id': 'one', 'state': 'pending', 'accepted': true},
+            if (requests.length > 1) {'id': 'two', 'state': 'complete'},
+          ]),
+          200,
+        );
+      });
+      final events = [deletion('one', 'one'), deletion('two', 'two'), deletion('one', 'last')];
+
+      await expectLater(simulateEvents(events), throwsStateError);
+
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+      verifyNever(() => mockSyncStreamRepo.deleteAssetsV1(any()));
+      verifyNever(() => mockSyncStreamRepo.retainPermanentDeletion(any()));
+      verifyNever(() => mockSyncStreamRepo.retainPermanentDeletion(any(), complete: false));
+
+      await simulateEvents(events);
+
+      expect(requests, [
+        ['one', 'two'],
+        ['one', 'two'],
+      ]);
+      verifyInOrder([
+        () => mockSyncStreamRepo.retainPermanentDeletion(['two']),
+        () => mockSyncStreamRepo.retainPermanentDeletion(['one'], complete: false),
+        () => mockSyncStreamRepo.deleteAssetsV1(any()),
+        () => mockSyncApiRepo.ack(['last']),
+      ]);
+    });
+
+    test('a later failed receipt batch cannot ACK earlier events and retries all events', () async {
+      final requested = <List<String>>[];
+      receipts((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requested.add(ids);
+        return http.Response(
+          jsonEncode([
+            for (final id in ids)
+              if (requested.length != 2 || id != 'asset-200') {'id': id, 'state': 'complete'},
+          ]),
+          200,
+        );
+      });
+      final events = [
+        for (var i = 0; i < 200; i++) deletion('asset-$i', 'event-$i'),
+        deletion('asset-0', 'replayed'),
+        deletion('asset-200', 'last'),
+      ];
+
+      await expectLater(simulateEvents(events), throwsStateError);
+      verifyNever(() => mockSyncApiRepo.ack(any()));
+      verifyNever(() => mockSyncStreamRepo.deleteAssetsV1(any()));
+
+      await simulateEvents(events);
+
+      expect(requested.map((ids) => ids.length), [200, 2, 200, 2]);
+      expect(requested[0], requested[2]);
+      expect(requested[1], requested[3]);
+      final applied =
+          verify(() => mockSyncStreamRepo.deleteAssetsV1(captureAny())).captured.single as List<SyncAssetDeleteV1>;
+      expect(applied.map((event) => event.assetId), events.map((event) => (event.data as SyncAssetDeleteV1).assetId));
+      verify(() => mockSyncApiRepo.ack(['last'])).called(1);
+    });
+  });
+
+  group('Fresh-start library download', () {
+    setUp(() async {
+      final store = StoreRepository(db);
+      await store.upsert(StoreKey.recoveryFreshStartNeedsSync, true);
+      await store.upsert(StoreKey.recoveryFreshStartReview, true);
+      await store.upsert(StoreKey.recoveryFreshStartLibraryReady, false);
+      when(
+        () => mockSyncStreamRepo.needsFreshLibraryDownload(),
+      ).thenAnswer((_) => db.syncStreamRepository.needsFreshLibraryDownload());
+      when(
+        () => mockSyncStreamRepo.markFreshLibraryDownloadStarted(),
+      ).thenAnswer((_) => db.syncStreamRepository.markFreshLibraryDownloadStarted());
+      when(
+        () => mockSyncStreamRepo.markFreshLibraryDownloadReady(),
+      ).thenAnswer((_) => db.syncStreamRepository.markFreshLibraryDownloadReady());
+      when(() => mockSyncApiRepo.restartLibraryDownload()).thenAnswer((_) async {});
+    });
+    tearDown(() async {
+      await Store.delete(StoreKey.recoveryFreshStartNeedsSync);
+      await Store.delete(StoreKey.recoveryFreshStartReview);
+      await Store.delete(StoreKey.recoveryFreshStartLibraryReady);
+    });
+    test('clears saved-session download cursors once and unlocks review only after completed sync', () async {
+      expect(await sut.sync(), true);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartNeedsSync), false);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartLibraryReady), true);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartReview), true);
+      await sut.sync();
+      verify(() => mockSyncApiRepo.restartLibraryDownload()).called(1);
+    });
+    test('failed cursor reset remains pending and cannot mark the library ready', () async {
+      when(() => mockSyncApiRepo.restartLibraryDownload()).thenThrow(StateError('synthetic connection failure'));
+      await expectLater(sut.sync(), throwsStateError);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartNeedsSync), true);
+      expect(await StoreRepository(db).tryGet(StoreKey.recoveryFreshStartLibraryReady), false);
     });
   });
 

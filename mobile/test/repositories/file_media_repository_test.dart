@@ -89,6 +89,123 @@ void main() {
     await expectLater(repository.saveImageWithFile(original.path, title: 'photo.jpg'), throwsStateError);
     expect(photosCalls.map((call) => call.method), ['saveImageWithPath', 'deleteWithIds']);
     expect(photosCalls.last.arguments, containsPair('ids', ['17']));
+    expect(await original.readAsBytes(), [255, 216, 255]);
+  });
+
+  test('an editor metadata failure retains the created ID without deleting or saving a second file', () async {
+    final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    updateSucceeds = false;
+    const repository = FileMediaRepository(isAndroid: true);
+    late SavedMediaImportException pending;
+    try {
+      await repository.saveImageWithFile(
+        original.path,
+        title: 'gallery-edit-123.png',
+        preserveCreatedAssetOnFailure: true,
+      );
+      fail('Metadata failure must not be reported as a completed import');
+    } on SavedMediaImportException catch (error) {
+      pending = error;
+    }
+    expect(pending.asset.id, '17');
+    expect(pending.asset.title, 'gallery-edit-123.png');
+    expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
+    updateSucceeds = true;
+    await repository.completeImageImport(pending.asset, mimeType: 'image/png');
+    expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
+    expect(filesCalls.map((call) => call.method), ['updateDownloadedAssetMimeType', 'updateDownloadedAssetMimeType']);
+    expect(filesCalls.last.arguments, {'mediaId': '17', 'type': 1, 'mimeType': 'image/png'});
+    expect(await original.readAsBytes(), [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
+  test('editor imports retain the unique requested name before native title indexing completes', () async {
+    final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    const repository = FileMediaRepository(isAndroid: true);
+    final saved = await repository.saveImageWithFile(
+      original.path,
+      title: 'gallery-edit-456.png',
+      preserveCreatedAssetOnFailure: true,
+    );
+    expect(saved?.id, '17');
+    expect(saved?.title, 'gallery-edit-456.png');
+    expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
+  });
+
+  test('an empty native display name also retains the editor request identity', () async {
+    final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(photos, (call) async {
+      photosCalls.add(call);
+      return {'id': '17', 'type': 1, 'width': 100, 'height': 100, 'title': ''};
+    });
+    const repository = FileMediaRepository(isAndroid: true);
+    final saved = await repository.saveImageWithFile(
+      original.path,
+      title: 'gallery-edit-789.png',
+      preserveCreatedAssetOnFailure: true,
+    );
+    expect(saved?.title, 'gallery-edit-789.png');
+    expect(photosCalls, hasLength(1));
+  });
+
+  test('metadata retry failures preserve the same editor ID and never remove device originals', () async {
+    const repository = FileMediaRepository(isAndroid: true);
+    final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    final saved = await repository.saveImageWithFile(original.path);
+    updateSucceeds = false;
+    await expectLater(
+      repository.completeImageImport(saved!, mimeType: 'image/png'),
+      throwsA(isA<SavedMediaImportException>().having((error) => error.asset.id, 'asset ID', '17')),
+    );
+    expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
+    expect(original.existsSync(), isTrue);
+  });
+
+  test('a native metadata exception retains the editor copy and its cause for retry', () async {
+    final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(files, (call) async {
+      filesCalls.add(call);
+      throw PlatformException(code: 'MEDIA_SAVE_ERROR');
+    });
+    const repository = FileMediaRepository(isAndroid: true);
+
+    await expectLater(
+      repository.saveImageWithFile(original.path, preserveCreatedAssetOnFailure: true),
+      throwsA(
+        isA<SavedMediaImportException>()
+            .having((error) => error.asset.id, 'created asset ID', '17')
+            .having((error) => error.cause, 'native failure', isA<PlatformException>()),
+      ),
+    );
+
+    expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
+    expect(await original.readAsBytes(), [137, 80, 78, 71, 13, 10, 26, 10]);
+  });
+
+  test('native metadata exceptions retain the existing download rollback behavior', () async {
+    final original = await File('${cache.path}/photo.jpg').writeAsBytes([255, 216, 255]);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(files, (call) async {
+      filesCalls.add(call);
+      throw PlatformException(code: 'MEDIA_SAVE_ERROR');
+    });
+    const repository = FileMediaRepository(isAndroid: true);
+
+    await expectLater(repository.saveImageWithFile(original.path), throwsA(isA<PlatformException>()));
+
+    expect(photosCalls.map((call) => call.method), ['saveImageWithPath', 'deleteWithIds']);
+    expect(photosCalls.last.arguments, containsPair('ids', ['17']));
+    expect(await original.readAsBytes(), [255, 216, 255]);
+  });
+
+  test('metadata completion rejects a non-image MIME without modifying the saved copy', () async {
+    final original = await File('${cache.path}/copy.png').writeAsBytes([137, 80, 78, 71, 13, 10, 26, 10]);
+    const repository = FileMediaRepository(isAndroid: true);
+    final saved = await repository.saveImageWithFile(original.path);
+
+    await expectLater(repository.completeImageImport(saved!, mimeType: 'video/mp4'), throwsArgumentError);
+
+    expect(photosCalls.map((call) => call.method), ['saveImageWithPath']);
+    expect(filesCalls, hasLength(1));
+    expect(await original.readAsBytes(), [137, 80, 78, 71, 13, 10, 26, 10]);
   });
 
   test('non-Android saves continue to use the existing platform photo library API', () async {

@@ -1,0 +1,22 @@
+{
+  "restored": true,
+  "source": "3678203a4d12972ddce6871cc343b4e181b96881",
+  "sha256": {
+    "mobile/lib/presentation/actions/action.widget.dart": "3c09b7d42f793eab6ee73da5bc32c91eb6eab8001550235ad9e7495e1d315fdf",
+    "mobile/lib/presentation/widgets/action_buttons/add_action_button.widget.dart": "d32741895abf99144a25b0faaf0a1bae0fcecacc324567852e65c7b41cdcbd15",
+    "mobile/lib/presentation/widgets/asset_viewer/bottom_bar.widget.dart": "159d72559b12fe31228c19a67b3ad46592957e92a368fe591b0f6a46b180323f",
+    "mobile/lib/presentation/widgets/asset_viewer/ocr_toggle_button.widget.dart": "f0d39e5d35e35e2b1c0992f974ee026e349b7a1136899c677016c2084d752f1d",
+    "mobile/lib/presentation/widgets/asset_viewer/viewer_control_surface.dart": "418d75f2ddcd568c69ec5d80c48974c329c957679bb60fa80d04ebf1738c81c6",
+    "mobile/lib/presentation/widgets/asset_viewer/viewer_kebab_menu.widget.dart": "5f86dec089a750bad581b27f0e3a1d1094953df892435f92b5bfe0446999dcd0",
+    "mobile/lib/presentation/widgets/asset_viewer/viewer_top_app_bar.widget.dart": "a1714e6827f824f0d33b3e571d27ccddd61ac8beb3e711eb5fdad7e6ca7f4e95",
+    "mobile/lib/presentation/widgets/bottom_sheet/action_cell_grid.dart": "c75b8b5dc9cc2c3ba0e3ee8bcbbcdbab6c61d975fe021bc5da34da4190a7e79e",
+    "mobile/lib/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart": "8739cc0ed3c56001f3c227b573d486695bcf929083721e61902d3a747db88d80",
+    "mobile/lib/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart": "f8c151cb5913b7356141dd62edc9a3fde27c25af9dee8afd81a68be660a4c2f2",
+    "mobile/lib/presentation/widgets/bottom_sheet/timeline_compact_selection.dart": "0db113bbc13348cf773f2065df7941b376725836ecc69a41dc6d38eb8f1c2e1f",
+    "mobile/lib/presentation/widgets/bottom_sheet/trash_action_bar.dart": "6870a8bda671874c393007e27c4aa76858920b1067af5d22867ba930b57723f9",
+    "mobile/lib/presentation/widgets/icons/proposal/foto_icon_mapping.dart": "b286c16ba646c7e54de486e5270ac379b7479448a699ad56d95b20b37d5c0c85",
+    "mobile/lib/presentation/widgets/icons/proposal/foto_icon_paths.dart": "a7dd8e5dc2a9b7698bc1f7e48883c4482410c295740a69f9c57a2584d1bab6c4",
+    "mobile/lib/utils/action_button.utils.dart": "edd209b3225e797f0ed44d7cc0e1a0735ae89722afe91dc2233b5606499f41bd",
+    "mobile/packages/ui/lib/src/components/column_button.dart": "11b55b625566ee814f7391aa82ac2c7ec98be05f2f6d36fef235b85f9303379a"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "sourceCommit": "2d8567bfd4235c1ee58d83390ab635ce544fb295",
+  "toolingCommit": "2d8567bfd4235c1ee58d83390ab635ce544fb295",
+  "serverVersion": "5.7.3",
+  "mobileVersion": "5.7.3",
+  "mobileBuild": 38,
+  "imageId": "sha256:551f20d30b39b53507dd23d722c365a4aab8b8835f89c21e56ce622479b9acd8",
+  "imageTag": "gallery-server:trash-2d8567bfd423",
+  "archiveSHA256": "327518aaf861c56143dbb95f8484c416e25ca805df707d9cd6f9965c46f93bd0",
+  "isolatedSmoke": "PASS: disposable lab migrations + HTTP Trash/Restore/ordinary owner consent/permanent deletion + read-only audit",
+  "isolatedExternalDeletion": {
+    "externalScopeDefaultReadOnly": true,
+    "ownerWritablePhysicalDeletion": true,
+    "externalScanSuppression": true,
+    "syntheticMediaOnly": true,
+    "productionNFSVerified": false
+  },
+  "rollbackVerification": "NOT_TESTED_NO_PINNED_ROLLBACK_ARTIFACT",
+  "ciRun": "https://github.com/docice545/gallery/actions/runs/41983664223",
+  "localDockerSmoke": "PASS",
+  "hp": "HP_REQUIRED",
+  "productionChanged": false,
+  "logs": {
+    "backend-2d856-final.log": "271bfa1ec1f5831252b7593c1ee85b3e820149b7bec3a137e61e0840dfde7413",
+    "backend-local-smoke.log": "88991c79c53f4c7944cf9d046c222268c8d86c90b4cf3912c3fc0aa1ea846713",
+    "backend-local-lab-unit.log": "91893a4d1717a01ca20c3da8432f5478bb9340d5a90fe1e4208a4c1edc5f7602"
+  },
+  "localHarnessSHA256": "56d1d4398d7b62e17ba3fc37837807dc1758ce428c01164079ee404be51a2b85"
+}

@@ -92,6 +92,7 @@ describe(MagicEraserService.name, () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await sut.onModuleDestroy();
     await rm(root, { recursive: true, force: true });
     vi.restoreAllMocks();
@@ -165,15 +166,28 @@ describe(MagicEraserService.name, () => {
     await first;
   });
 
-  it('saves a separate still using upload ingestion and capture metadata without stack/live linkage', async () => {
+  it('saves a separate still with the save date and source camera metadata, without stack/live linkage', async () => {
+    const savedAt = new Date('2026-11-02T23:55:12.345Z');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-02T23:50:00Z'));
     const job = await sut.create(authStub.admin, asset.id, mask);
     expect(job.status).toBe('queued');
     await finish();
     expect(await sut.status(authStub.admin, asset.id, job.id)).toMatchObject({ status: 'ready' });
-    const response = await sut.save(authStub.admin, asset.id, job.id);
+    vi.setSystemTime(savedAt);
+    const response = await sut.save(authStub.admin, asset.id, job.id, { timeZoneOffsetMinutes: -600 });
+    vi.useRealTimers();
     expect(response.status).toBe(AssetMediaStatus.CREATED);
     const [, dto, file] = mediaUpload.uploadAsset.mock.calls[0];
-    expect(dto.fileCreatedAt).toEqual(asset.exifInfo.dateTimeOriginal);
+    expect(dto.fileCreatedAt).toEqual(savedAt);
+    expect(dto.fileModifiedAt).toEqual(savedAt);
+    expect(eraser.writeCopyMetadata).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ make: asset.exifInfo.make, timeZone: 'UTC+3' }),
+      savedAt,
+      -600,
+    );
+    expect(asset.exifInfo.dateTimeOriginal).toEqual(new Date('2020-02-03T10:20:30Z'));
     expect(dto.filename).toMatch(/-magic-eraser\.jpg$/);
     expect(dto.metadata[0]).toMatchObject({
       key: 'gallery.magicEraser',
@@ -184,7 +198,10 @@ describe(MagicEraserService.name, () => {
     expect(file.originalPath).toContain(join(root, 'upload', authStub.admin.user.id));
     expect(await readFile(file.originalPath, 'utf8')).toBe('AI still result');
     expect(await readFile(asset.originalPath, 'utf8')).toBe('NAS original unchanged');
-    expect(mocks.asset.update).not.toHaveBeenCalled();
+    expect(mocks.asset.update).toHaveBeenCalledExactlyOnceWith({
+      id: response.id,
+      localDateTime: new Date('2026-11-02T13:55:12.345Z'),
+    });
     expect(mocks.assetEdit.replaceAll).not.toHaveBeenCalled();
   });
 
@@ -199,6 +216,7 @@ describe(MagicEraserService.name, () => {
     expect(await sut.save(authStub.admin, asset.id, job.id)).toEqual(first);
     expect(mediaUpload.uploadAsset).toHaveBeenCalledOnce();
     expect(eraser.writeCopyMetadata).toHaveBeenCalledOnce();
+    expect(eraser.writeCopyMetadata.mock.calls[0][3]).toBe(0);
   });
 
   it.each([AssetVisibility.Locked, AssetVisibility.Hidden, AssetVisibility.Archive])(
@@ -216,20 +234,73 @@ describe(MagicEraserService.name, () => {
     },
   );
 
+  it('retains the created ID and retries only date finalization after a database failure', async () => {
+    mocks.asset.update.mockRejectedValueOnce(new Error('synthetic date update failure'));
+    const job = await sut.create(authStub.admin, asset.id, mask);
+    await finish();
+    await expect(sut.save(authStub.admin, asset.id, job.id, { timeZoneOffsetMinutes: 180 })).rejects.toThrow(
+      'date update failure',
+    );
+    const response = await mediaUpload.uploadAsset.mock.results[0].value;
+    expect(await sut.status(authStub.admin, asset.id, job.id)).toMatchObject({ status: 'saved', assetId: response.id });
+    expect(await sut.cancel(authStub.admin, asset.id, job.id)).toMatchObject({ status: 'saved' });
+    expect(await sut.save(authStub.admin, asset.id, job.id, { timeZoneOffsetMinutes: -600 })).toEqual(response);
+    expect(mediaUpload.uploadAsset).toHaveBeenCalledOnce();
+    expect(eraser.writeCopyMetadata).toHaveBeenCalledOnce();
+    expect(mocks.asset.update).toHaveBeenCalledTimes(2);
+    expect(mocks.asset.update.mock.calls[0]).toEqual(mocks.asset.update.mock.calls[1]);
+    expect(eraser.cancel).not.toHaveBeenCalled();
+  });
+
+  it('coalesces concurrent retries while a committed copy awaits date finalization', async () => {
+    const gate = Promise.withResolvers<undefined>();
+    mocks.asset.update.mockImplementationOnce(() => gate.promise);
+    const job = await sut.create(authStub.admin, asset.id, mask);
+    await finish();
+    const first = sut.save(authStub.admin, asset.id, job.id);
+    await vi.waitFor(() => expect(mocks.asset.update).toHaveBeenCalledOnce());
+    let settled = false;
+    const second = sut.save(authStub.admin, asset.id, job.id).then((response) => {
+      settled = true;
+      return response;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    gate.resolve(undefined);
+    const [a, b] = await Promise.all([first, second]);
+    expect(b).toEqual(a);
+    expect(mediaUpload.uploadAsset).toHaveBeenCalledOnce();
+    expect(mocks.asset.update).toHaveBeenCalledOnce();
+  });
+
   it('surfaces upload/quota failure, keeps the result, and retries with stable bytes on a fresh staging path', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const savedAt = new Date('2026-11-02T23:55:12.345Z');
+    vi.setSystemTime(savedAt);
     mediaUpload.uploadAsset.mockRejectedValueOnce(new Error('Quota has been exceeded!'));
     const duplicate = { id: randomUUID(), status: AssetMediaStatus.DUPLICATE };
     mediaUpload.uploadAsset.mockResolvedValueOnce(duplicate);
     const job = await sut.create(authStub.admin, asset.id, mask);
     await finish();
-    await expect(sut.save(authStub.admin, asset.id, job.id)).rejects.toThrow('Quota');
+    await expect(sut.save(authStub.admin, asset.id, job.id, { timeZoneOffsetMinutes: 330 })).rejects.toThrow('Quota');
     expect(await sut.status(authStub.admin, asset.id, job.id)).toMatchObject({ status: 'ready' });
-    expect(await sut.save(authStub.admin, asset.id, job.id)).toEqual(duplicate);
+    vi.setSystemTime(new Date('2026-11-03T00:05:00Z'));
+    expect(await sut.save(authStub.admin, asset.id, job.id, { timeZoneOffsetMinutes: -600 })).toEqual(duplicate);
+    vi.useRealTimers();
     const first = mediaUpload.uploadAsset.mock.calls[0][2];
     const second = mediaUpload.uploadAsset.mock.calls[1][2];
     expect(first.originalPath).not.toEqual(second.originalPath);
     expect(first.checksum).toEqual(second.checksum);
     expect(eraser.writeCopyMetadata).toHaveBeenCalledOnce();
+    expect(eraser.writeCopyMetadata).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ make: asset.exifInfo.make, timeZone: 'UTC+3' }),
+      savedAt,
+      330,
+    );
+    expect(mocks.asset.update).not.toHaveBeenCalled();
+    expect(mediaUpload.uploadAsset.mock.calls.map((call) => call[1].fileCreatedAt)).toEqual([savedAt, savedAt]);
+    expect(mediaUpload.uploadAsset.mock.calls.map((call) => call[1].fileModifiedAt)).toEqual([savedAt, savedAt]);
   });
 
   it('removes staging file when checksum preparation fails before upload', async () => {

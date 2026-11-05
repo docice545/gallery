@@ -126,6 +126,57 @@ class ArchiveTests(unittest.TestCase):
             verifier.verify_archive(self.archive, app_group="unexpected.group")
 
 
+class BrandingPathTests(unittest.TestCase):
+    def test_macos_overlay_uses_gnu_tools_from_actual_homebrew_prefix(self):
+        action = yaml.load(
+            (REPOSITORY / ".github/actions/apply-branding/action.yml").read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        script = next(
+            step["run"] for step in action["runs"]["steps"]
+            if step.get("name") == "Apply branding overlay"
+        )
+        for prefix_name in ("intel-brew", "arm brew"):
+            with self.subTest(prefix=prefix_name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                prefix = root / prefix_name
+                bin_dir = root / "bin"
+                bin_dir.mkdir()
+                brew = bin_dir / "brew"
+                brew.write_text('#!/bin/sh\nprintf "%s\\n" "$FOTO_TEST_BREW_PREFIX"\n')
+                brew.chmod(0o755)
+                for name, package in (("sed", "gnu-sed"), ("realpath", "coreutils")):
+                    # A BSD-like fallback must fail GNU-only flags; only the
+                    # actual Homebrew prefix provides the supported tools.
+                    fallback = bin_dir / name
+                    fallback.write_text("#!/bin/sh\nexit 91\n")
+                    fallback.chmod(0o755)
+                    gnu_bin = prefix / "opt" / package / "libexec/gnubin"
+                    gnu_bin.mkdir(parents=True)
+                    (gnu_bin / name).symlink_to(
+                        shutil.which(f"g{name}") or shutil.which(name)
+                    )
+                overlay = root / "branding/scripts/apply-branding.sh"
+                overlay.parent.mkdir(parents=True)
+                overlay.write_text(
+                    '#!/bin/bash\nset -eu\nprintf before > probe.txt\n'
+                    "sed -i 's/before/after/' probe.txt\n"
+                    'realpath --relative-to="$PWD" "$PWD/probe.txt"\n'
+                )
+                overlay.chmod(0o755)
+                result = subprocess.run(
+                    ["bash", "-e", "-o", "pipefail", "-c", script],
+                    cwd=root,
+                    env={**os.environ, "RUNNER_OS": "macOS",
+                         "FOTO_TEST_BREW_PREFIX": str(prefix),
+                         "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "probe.txt").read_text(), "after")
+                self.assertEqual(result.stdout.strip(), "probe.txt")
+
+
 class LaneTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -666,7 +717,7 @@ class ConfigurationTests(unittest.TestCase):
         for name in ("build-sign-android", "build-sign-ios"):
             build = workflow["jobs"][name]
             self.assertIn("!inputs.refresh_ios_pods_lock", build["if"])
-            self.assertEqual(build["permissions"], {"contents": "read"})
+            self.assertEqual(build["permissions"], {"contents": "read", "actions": "read"})
             checkout = next(
                 step
                 for step in build["steps"]

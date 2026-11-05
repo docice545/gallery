@@ -53,6 +53,9 @@ import '../table/remote/shared_space_album_hidden.dart';
 -- arm only needs to subtract assets that have NO other, visible path.
 -- Filters are disabled for the main timeline. Live Photos uses the same visibility,
 -- deduplication and backup-selection query with paired-still and temporal predicates.
+-- Trash may arrive before StacksV1 changes the canonical cover. Select a live
+-- representative from persisted membership until that sync arrives. Keep links
+-- intact for rollback/restore, and never choose Hidden/Locked frames as fallback.
 mergedAsset(:current_user_id AS TEXT, :live_photos_only AS BOOLEAN OR NULL, :scope_start AS TEXT OR NULL, :scope_end AS TEXT OR NULL):
 SELECT
 	rae.id as remote_id,
@@ -77,7 +80,8 @@ SELECT
 	NULL as adjustmentTime,
 	rae.is_edited,
 	0 as playback_style,
-	rae.uploaded_at
+	rae.uploaded_at,
+	COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), STRFTIME('%Y-%m-%d', rae.created_at, 'localtime')) AS sort_date
 FROM
 	remote_asset_entity rae
 LEFT JOIN
@@ -160,7 +164,16 @@ AND (:scope_end IS NULL OR COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), S
 	)
 	AND (
 		rae.stack_id IS NULL
-		OR rae.id = se.primary_asset_id
+		OR rae.id = COALESCE(
+    (SELECT primary_frame.id FROM remote_asset_entity primary_frame
+     WHERE primary_frame.id = se.primary_asset_id
+       AND primary_frame.stack_id = se.id AND primary_frame.owner_id = rae.owner_id
+       AND primary_frame.deleted_at IS NULL),
+    (SELECT survivor.id FROM remote_asset_entity survivor
+     WHERE survivor.stack_id = se.id AND survivor.owner_id = rae.owner_id
+       AND survivor.deleted_at IS NULL AND survivor.visibility = 0
+     ORDER BY survivor.created_at, survivor.id LIMIT 1)
+  )
 	)
 
 UNION ALL
@@ -188,7 +201,8 @@ SELECT
 	lae.adjustment_time,
 	0 as is_edited,
 	lae.playback_style,
-	NULL as uploaded_at
+	NULL as uploaded_at,
+	STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') AS sort_date
 FROM
 	local_asset_entity lae
 WHERE NOT EXISTS (
@@ -222,16 +236,20 @@ AND NOT EXISTS (
 AND (COALESCE(:live_photos_only, 0) = 0 OR (lae."type" = 1 AND lae.playback_style = 4))
 AND (:scope_start IS NULL OR STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') >= :scope_start)
 AND (:scope_end IS NULL OR STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') <= :scope_end)
-ORDER BY created_at DESC
+ORDER BY sort_date DESC, created_at DESC, remote_id DESC, local_id DESC
 LIMIT $limit;
 
 mergedBucket(:group_by AS INTEGER, :current_user_id AS TEXT, :live_photos_only AS BOOLEAN OR NULL, :scope_start AS TEXT OR NULL, :scope_end AS TEXT OR NULL):
 SELECT
 	COUNT(*) as asset_count,
-	bucket_date
+	bucket_date,
+	JSON_GROUP_ARRAY(aspect_ratio) as aspect_ratios
 FROM
 (
 	SELECT
+		COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), STRFTIME('%Y-%m-%d', rae.created_at, 'localtime')) AS sort_date,
+		rae.created_at AS sort_created_at, rae.id AS sort_remote_id, NULL AS sort_local_id,
+		CASE WHEN rae.width > 0 AND rae.height > 0 THEN rae.width * 1.0 / rae.height ELSE 1.0 END AS aspect_ratio,
 		CASE
 			WHEN :group_by = 0 THEN COALESCE(
 				STRFTIME('%Y-%m-%d', rae.local_date_time),
@@ -328,10 +346,22 @@ AND (:scope_end IS NULL OR COALESCE(STRFTIME('%Y-%m-%d', rae.local_date_time), S
 		)
 		AND (
 			rae.stack_id IS NULL
-			OR rae.id = se.primary_asset_id
+			OR rae.id = COALESCE(
+    (SELECT primary_frame.id FROM remote_asset_entity primary_frame
+     WHERE primary_frame.id = se.primary_asset_id
+       AND primary_frame.stack_id = se.id AND primary_frame.owner_id = rae.owner_id
+       AND primary_frame.deleted_at IS NULL),
+    (SELECT survivor.id FROM remote_asset_entity survivor
+     WHERE survivor.stack_id = se.id AND survivor.owner_id = rae.owner_id
+       AND survivor.deleted_at IS NULL AND survivor.visibility = 0
+     ORDER BY survivor.created_at, survivor.id LIMIT 1)
+  )
 		)
 	UNION ALL
 	SELECT
+		STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') AS sort_date,
+		lae.created_at AS sort_created_at, NULL AS sort_remote_id, lae.id AS sort_local_id,
+		CASE WHEN lae.width > 0 AND lae.height > 0 THEN lae.width * 1.0 / lae.height ELSE 1.0 END AS aspect_ratio,
 		CASE
 			WHEN :group_by = 0 THEN STRFTIME('%Y-%m-%d', lae.created_at, 'localtime')
 			WHEN :group_by = 1 THEN STRFTIME('%Y-%m', lae.created_at, 'localtime')
@@ -370,6 +400,7 @@ AND NOT EXISTS (
 	AND (COALESCE(:live_photos_only, 0) = 0 OR (lae."type" = 1 AND lae.playback_style = 4))
 	AND (:scope_start IS NULL OR STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') >= :scope_start)
 AND (:scope_end IS NULL OR STRFTIME('%Y-%m-%d', lae.created_at, 'localtime') <= :scope_end)
+	ORDER BY sort_date DESC, sort_created_at DESC, sort_remote_id DESC, sort_local_id DESC
 )
 GROUP BY bucket_date
 ORDER BY bucket_date DESC;

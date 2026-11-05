@@ -1,9 +1,53 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/providers/backup/backup.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/settings.provider.dart';
+
+/// The durable recovery flags are read directly: the Store watch cache can lag.
+Future<bool> confirmFreshBackupReview(BuildContext context, StoreRepository store) async {
+  if (await store.tryGet(StoreKey.recoveryFreshStartReview) == true) {
+    final ready = await store.tryGet(StoreKey.recoveryFreshStartLibraryReady) == true;
+    if (!context.mounted) {
+      return false;
+    }
+    if (!ready) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('sqlite_fresh_review_title'.tr()),
+          content: Text('sqlite_fresh_wait_library'.tr()),
+          actions: [TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: Text('ok'.tr()))],
+        ),
+      );
+      return false;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('sqlite_fresh_review_title'.tr()),
+        content: Text('sqlite_fresh_review_warning'.tr()),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: Text('cancel'.tr())),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('sqlite_fresh_review_confirm'.tr()),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return false;
+    }
+    await store.upsert(StoreKey.recoveryFreshStartReview, false);
+  }
+  return true;
+}
 
 class BackupToggleButton extends ConsumerStatefulWidget {
   final VoidCallback onStart;
@@ -40,6 +84,13 @@ class BackupToggleButtonState extends ConsumerState<BackupToggleButton> with Sin
   }
 
   Future<void> _onToggle(bool value) async {
+    final store = StoreRepository(ref.read(driftProvider));
+    if (value && !await confirmFreshBackupReview(context, store)) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
     await ref.read(settingsProvider).write(.backupEnabled, value);
 
     setState(() {

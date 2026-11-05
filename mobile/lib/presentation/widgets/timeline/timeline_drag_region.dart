@@ -34,6 +34,8 @@ class TimelineDragRegion extends StatefulWidget {
 class _TimelineDragRegionState extends State<TimelineDragRegion> {
   late TimelineAssetIndex? assetUnderPointer;
   late TimelineAssetIndex? anchorAsset;
+  Offset? _dragStartPosition;
+  static const double _dragActivationDistance = 12.0;
 
   // Scroll related state
   static const double scrollOffset = 0.10;
@@ -41,6 +43,7 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
   double? bottomScrollOffset;
   Timer? scrollTimer;
   late bool scrollNotified;
+  final Set<int> _pointers = {};
 
   @override
   void initState() {
@@ -65,25 +68,40 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
 
   @override
   Widget build(BuildContext context) {
-    return RawGestureDetector(
-      gestures: {
-        _CustomLongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<_CustomLongPressGestureRecognizer>(
-          () => _CustomLongPressGestureRecognizer(),
-          _registerCallbacks,
-        ),
+    return Listener(
+      onPointerDown: (event) {
+        _pointers.add(event.pointer);
+        if (_pointers.length > 1) {
+          _onLongPressEnd();
+        }
       },
-      child: widget.child,
+      onPointerUp: (event) => _pointers.remove(event.pointer),
+      onPointerCancel: (event) {
+        _pointers.remove(event.pointer);
+        _onLongPressEnd();
+      },
+      child: RawGestureDetector(
+        gestures: {
+          if (widget.onStart != null)
+            LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+              LongPressGestureRecognizer.new,
+              _registerCallbacks,
+            ),
+        },
+        child: widget.child,
+      ),
     );
   }
 
-  void _registerCallbacks(_CustomLongPressGestureRecognizer recognizer) {
+  void _registerCallbacks(LongPressGestureRecognizer recognizer) {
     recognizer.onLongPressMoveUpdate = (details) => _onLongPressMove(details);
     recognizer.onLongPressStart = (details) => _onLongPressStart(details);
     recognizer.onLongPressUp = _onLongPressEnd;
+    recognizer.onLongPressCancel = _onLongPressEnd;
   }
 
   TimelineAssetIndex? _getValueKeyAtPosition(Offset position) {
-    final box = context.findAncestorRenderObjectOfType<RenderBox>();
+    final box = context.findRenderObject() as RenderBox?;
     if (box == null) {
       return null;
     }
@@ -100,6 +118,10 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
   }
 
   void _onLongPressStart(LongPressStartDetails event) {
+    if (_pointers.length != 1) {
+      return;
+    }
+
     /// Calculate widget height and scroll offset when long press starting instead of in [initState]
     /// or [didChangeDependencies] as the grid might still be rendering into view to get the actual size
     final height = context.size?.height;
@@ -110,6 +132,8 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
 
     final initialHit = _getValueKeyAtPosition(event.globalPosition);
     anchorAsset = initialHit;
+    _dragStartPosition = initialHit == null ? null : event.globalPosition;
+    assetUnderPointer = initialHit;
     if (initialHit == null) {
       return;
     }
@@ -120,9 +144,16 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
   }
 
   void _onLongPressEnd() {
+    final wasActive = anchorAsset != null;
+    anchorAsset = null;
+    _dragStartPosition = null;
+    assetUnderPointer = null;
     scrollNotified = false;
     scrollTimer?.cancel();
-    widget.onEnd?.call();
+    scrollTimer = null;
+    if (wasActive) {
+      widget.onEnd?.call();
+    }
   }
 
   void _onLongPressMove(LongPressMoveUpdateDetails event) {
@@ -150,6 +181,11 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
       scrollTimer = null;
     }
 
+    final start = _dragStartPosition;
+    if (start != null && (event.globalPosition - start).distance < _dragActivationDistance) {
+      return;
+    }
+
     final currentlyTouchingAsset = _getValueKeyAtPosition(event.globalPosition);
     if (currentlyTouchingAsset == null) {
       return;
@@ -164,13 +200,6 @@ class _TimelineDragRegionState extends State<TimelineDragRegion> {
       widget.onAssetEnter?.call(currentlyTouchingAsset);
       assetUnderPointer = currentlyTouchingAsset;
     }
-  }
-}
-
-class _CustomLongPressGestureRecognizer extends LongPressGestureRecognizer {
-  @override
-  void rejectGesture(int pointer) {
-    acceptGesture(pointer);
   }
 }
 

@@ -1,0 +1,30 @@
+{
+  "sourceSha": "65c99a6fae530715ca9c2bc8189d941dcc734942",
+  "kind": "Synthetic Flutter widget render; not Samsung screenshots",
+  "iconDesignApproval": "APPROVED by user: FOTO v1 ccdb8a892",
+  "hardwareAcceptance": "PENDING",
+  "reviewProfile": "editor",
+  "measurements": [
+    "EDITOR_VIEWPORT entry photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT markup photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT marker photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT width photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT color photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT crop photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT text photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_light_entry photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_dark_entry photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_light_markup photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_dark_markup photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_light_marker photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_dark_marker photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_light_width photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_dark_width photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_light_color photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_dark_color photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_light_crop photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_dark_crop photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_light_text photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)",
+    "EDITOR_VIEWPORT theme_dark_text photo=Rect.fromLTRB(0.0, 84.0, 393.0, 772.0) image=Rect.fromLTRB(3.0, 84.0, 390.0, 772.0) dock=Rect.fromLTRB(0.0, 772.0, 393.0, 852.0)"
+  ]
+}

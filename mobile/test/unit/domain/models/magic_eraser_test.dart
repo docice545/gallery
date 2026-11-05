@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/magic_eraser.model.dart';
 
@@ -6,6 +8,28 @@ void main() {
       MagicEraserStroke(points: points ?? [const Offset(0.25, 0.5)], radius: radius, erase: erase);
 
   group('MagicEraserStroke', () {
+    test('closed contours fill in upright portrait, landscape and square coordinates', () {
+      final closed = stroke(
+        points: const [Offset(0.2, 0.2), Offset(0.8, 0.2), Offset(0.8, 0.8), Offset(0.2, 0.8), Offset(0.2, 0.2)],
+        radius: 0.01,
+      );
+      for (final size in [const Size(200, 200), const Size(300, 120), const Size(120, 300)]) {
+        expect(closed.isClosedContour(size), isTrue, reason: '$size');
+      }
+      expect(stroke(points: closed.points, radius: 0.01, erase: true).isClosedContour(const Size(200, 200)), isTrue);
+    });
+
+    test('open, retraced, tap and degenerate gestures remain brush strokes', () {
+      for (final points in <List<Offset>>[
+        const [Offset(0.2, 0.2), Offset(0.8, 0.2), Offset(0.8, 0.8), Offset(0.2, 0.8)],
+        const [Offset(0.2, 0.2), Offset(0.4, 0.4), Offset(0.8, 0.8), Offset(0.2, 0.2)],
+        const [Offset(0.5, 0.5)],
+        List.filled(4, const Offset(0.5, 0.5)),
+      ]) {
+        expect(stroke(points: points).isClosedContour(const Size(200, 200)), isFalse);
+      }
+    });
+
     test('snapshots normalized points without allowing later input or output mutation', () {
       final input = [const Offset(0.25, 0.5)];
       final selection = stroke(points: input);

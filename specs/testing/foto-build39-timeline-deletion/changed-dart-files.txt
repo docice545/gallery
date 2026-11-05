@@ -1,0 +1,5 @@
+mobile/lib/presentation/widgets/deletion/ghost_trap.dart
+mobile/lib/presentation/widgets/images/decoded_image_source.dart
+mobile/lib/presentation/widgets/images/thumbnail.widget.dart
+mobile/lib/presentation/widgets/timeline/fixed/segment.model.dart
+mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart

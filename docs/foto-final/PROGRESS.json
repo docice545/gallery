@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "docice545/gallery",
-  "branch": "codex/foto-master-final-20261029",
+  "branch": "codex/foto-build22-resume-20261029",
   "base": {
     "ref": "codex/foto-final-rc-20261028",
     "sha": "8910f0281cdcec731b585a9e0efdefcba59827e5"
@@ -19,7 +19,7 @@
       "flutter_android_ios_hp": "BLOCKED"
     }
   },
-  "nextStage": "run-hosted-final-sha-p0-and-original-client-gates",
+  "nextStage": "verify-exact-published-sha-actions-then-owner-hp-device-gates",
   "stage1": {
     "status": "SOURCE_CHECKED_HP_BLOCKED",
     "commit": "0d1142157d6d6f6901cc6ffa1d951ac4c3d78e9b",
@@ -203,11 +203,241 @@
     "overall": "NOT_RELEASE_READY"
   },
   "currentCheckpoint": {
-    "stage": "ghcr-auth-final-hosted-run",
-    "commit": "1f27ec1f15af1351e13b459f1d5709c6c121a3d2",
+    "stage": "build22-cloud-source-validation-and-hp-handoff",
+    "sourceCommit": "0719bf7042d128b09a3591f3a084af1edf2b5ae6",
+    "remoteHeadAtResume": "0b0e924b75b2e3417dd3a35a96771b94b15fc69f",
+    "localValidationComplete": true,
+    "hostedReceiptPolicy": "Require completed/success for compatibility and web workflows at the exact published checkout SHA; see RELEASE_GATES.md",
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage6": {
+    "status": "P0_SOURCE_FIXES_PUBLISHED_HOSTED_RERUN_REQUIRED",
+    "commit": "c40b15395",
     "published": true,
     "remoteHeadVerified": true,
-    "documentationReceiptPending": false,
+    "productionChanged": false,
+    "run40909759811": {
+      "headSha": "b216af2be0dd5867c45221724f9612afff62abb8",
+      "apiContract": "PASS",
+      "iosContract": "CANCELLED",
+      "androidOfflineCache": "FAIL",
+      "fotoOfflineEmulator": "FAIL",
+      "stockAndroid580": "FAIL:server_version_admission",
+      "stockAndroid590": "FAIL:server_version_admission"
+    },
+    "fixes": {
+      "compatibilityBackendVersion": "BUILD_VERSION=5.7.3 plus API assertion",
+      "androidUiSmoke": "explicit semantic input wait and timeout receipt",
+      "gradleHeap": "dynamic 4-6GiB heap, one worker, daemon controls",
+      "sqliteRecovery": "copy-only diagnostic/index-repair operator; no promotion"
+    },
+    "tests": {
+      "serverContractTests": "PASS:12",
+      "serverBuild": "PASS:79_gallery_migrations_and_aliases",
+      "versionStampProbe": "PASS",
+      "dockerComposeConfig": "PASS",
+      "shellAndJsonChecks": "PASS",
+      "flutterDartTests": "BLOCKED:no_flutter_or_dart_runtime",
+      "pluginWasmBuild": "BLOCKED:extism-js_missing",
+      "hostedRerun": "NOT_RUN:manual_dispatch_permission_required"
+    },
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage7": {
+    "status": "P0_SOURCE_FIXES_PUBLISHED_HOSTED_RUNTIME_PENDING",
+    "sqliteImplementationCommit": "76f36de52a5abcdf42b2cbddb38207751c14f3e7",
+    "androidActionCommit": "55e3b091e85a610f908c61aa6867b28a77891684",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "sqliteFileBackedCorruptionRecovery": "PENDING_HOSTED_FLUTTER",
+      "sqliteErrorCode": "779_SQLITE_CORRUPT_INDEX",
+      "sqlitePendingAndCursorPreservation": "SOURCE_ASSERTIONS_PRESENT",
+      "sqliteCopyRepairAndResume": "SOURCE_ASSERTIONS_PRESENT",
+      "syncAckSuppression": "SOURCE_TEST_PRESENT",
+      "androidSmokeShellSyntax": "PASS",
+      "pythonReleaseHandoff": "PASS:3",
+      "gitDiffCheck": "PASS",
+      "run40937674495": "CANCELLED_BY_SUPERSEDING_CHECKPOINT_AFTER_API_PASS",
+      "run40938640647": "QUEUED"
+    },
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage8": {
+    "status": "HOSTED_SQLITE_P0_PASS_BUILD22_LAUNCH_DIAGNOSIS_RERUN_PENDING",
+    "sqliteHostedRun": "40938640647",
+    "sqliteHostedCommit": "55e3b091e85a610f908c61aa6867b28a77891684",
+    "priorBuild22Run": "40945591027",
+    "priorBuild22Commit": "52129624a0cc1bcf65bcc22ef096c49154b8a000",
+    "sourceCommit": "99d4a58eabf6cc13f1f4e4fc3151cde051925b03",
+    "rerun": "40950288472",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "sqliteFileBackedCorruptionRecovery": "PASS_HOSTED_IOS_RUN_40938640647",
+      "sqliteErrorCode": "779_SQLITE_CORRUPT_INDEX",
+      "sqlitePendingAndCursorPreservation": "PASS_HOSTED_IOS_RUN_40938640647",
+      "sqliteCopyRepairAndResume": "PASS_HOSTED_IOS_RUN_40938640647",
+      "syncAckSuppression": "PASS_SOURCE_TEST",
+      "officialAndroid580": "PASS_RUN_40938640647",
+      "officialAndroid590": "PASS_RUN_40938640647",
+      "fotoOfflineEmulator": "FAIL_RUN_40945591027:three attempts stopped at clear_and_launch",
+      "fotoLaunchFix": "PASS_LOCAL_SHELL_AND_SOURCE_CHECKS",
+      "fotoRerun": "PENDING_RUN_40950288472"
+    },
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage9": {
+    "status": "HOSTED_BUILD22_AND_ORIGINAL_CLIENTS_PASS_PRODUCTION_GATES_OPEN",
+    "diagnosticCommit": "a89bcb0c14aec952ea3377504905c1759c2425d2",
+    "sourceCommit": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
+    "diagnosticRun": "40956102162",
+    "finalRun": "40961734970",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "sqliteFileBackedCorruptionRecovery": "PASS_HOSTED_IOS_RUN_40961734970_JOB_123755969746",
+      "sqliteErrorCode": "779_SQLITE_CORRUPT_INDEX",
+      "sqlitePendingAndCursorPreservation": "PASS_HOSTED_IOS_RUN_40961734970_JOB_123755969746",
+      "sqliteCopyRepairAndResume": "PASS_HOSTED_IOS_RUN_40961734970_JOB_123755969746",
+      "syncAckSuppression": "PASS_SOURCE_TEST",
+      "fotoOfflineEmulator": "PASS_RUN_40961734970_JOB_123755969984",
+      "officialAndroid580": "PASS_RUN_40961734970_JOB_123755970131",
+      "officialAndroid590": "PASS_RUN_40961734970_JOB_123755969995",
+      "iosFlutterAndSimulator": "PASS_RUN_40961734970_JOB_123755969746",
+      "androidCache": "PASS_RUN_40961734970_JOB_123755970070",
+      "apiContractAndBackend": "PASS_RUN_40961734970_JOB_123755970160",
+      "api35PermissionDialog": "FIXED_WITH_EMULATOR_ONLY_GRANTS_AND_SEMANTIC_DISMISS",
+      "uiDumpDiagnostics": "PASS_LOCAL_FAKE_ADB_REGRESSION",
+      "shellAndJsonChecks": "PASS_LOCAL"
+    },
+    "openGates": [
+      "SAMSUNG_S23_PHYSICAL_REPLAY",
+      "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
+      "HP_NAS_PRODUCTION_VALIDATION",
+      "PRODUCTION_SERVICE_OPERATIONS"
+    ],
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage10": {
+    "status": "FINAL_MATRIX_AND_RELEASE_HANDOFF_COMMITTED_REMOTE_PUSH_PENDING",
+    "documentationCommit": "535827a295bf1efaf46ebdf48e5aba3b61e305ab",
+    "testedCodeSha": "d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552",
+    "hostedRun": "40961734970",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "acceptanceMatrix": "PASS:33_REQUIRED_ROWS_PLUS_2_SUPPLEMENTAL_P0_GATES",
+      "releaseGates": "PASS:EXACT_RUN_AND_JOB_RECEIPTS",
+      "releaseManifest": "PASS:JSON_VALID",
+      "serverFocusedTests": "PASS:102_LOCAL_UNIT; PASS:87_TARGETED_MEDIUM_RECEIPT",
+      "webFocusedTests": "PASS:84_LOCAL_SUBSET; PASS:65_TARGETED_RECEIPT",
+      "gitDiffCheck": "PASS",
+      "signedReleaseApk": "BLOCKED:OLD_KEY_HP_ONLY",
+      "githubPr": "BLOCKED:INVALID_TOKEN_403"
+    },
+    "openGates": [
+      "REMOTE_PUSH_AND_SHA_VERIFICATION",
+      "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
+      "SAMSUNG_S23_AND_PHYSICAL_IOS",
+      "HP_NAS_AND_POPULATED_RESTORE_BENCHMARKS",
+      "WEB_FINAL_BUILD_AND_CHROMIUM_E2E",
+      "PRODUCTION_SERVICE_OPERATIONS"
+    ],
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage11": {
+    "status": "MEMORIES_SOURCE_FIX_AND_BIG_LAMA_CLOUD_PASS_HOSTED_FINAL_PENDING",
+    "sourceCommit": "dd9c10444",
+    "memoryLaneCommit": "8c8905e2e012cdf0fa40bd38f8a7b383663af730",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "memoryLaneWidgetCoverage": "SOURCE_PASS_HOSTED_FLUTTER_PENDING",
+      "bigLamaWorkerSuite": "PASS:55;SKIPPED:1_ENV_GATED",
+      "bigLamaVerifiedLocalModel": "PASS",
+      "bigLamaDockerHealthAndInference": "PASS",
+      "webBuildAndFocusedTests": "PASS_LOCAL;CHROMIUM_E2E_PENDING",
+      "gitDiffCheck": "PASS"
+    },
+    "openGates": [
+      "HOSTED_FLUTTER_MEMORY_LANE_TEST",
+      "WEB_CHROMIUM_E2E",
+      "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
+      "SAMSUNG_S23_AND_PHYSICAL_IOS",
+      "HP_NAS_AND_POPULATED_RESTORE_BENCHMARKS",
+      "PRODUCTION_SERVICE_OPERATIONS"
+    ],
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage12": {
+    "status": "MEMORIES_SOURCE_FIX_HOSTED_TEST_FAIL_WEB_BIG_LAMA_PASS_COMPAT_PENDING_IOS_STRICT_RERUN",
+    "sourceCommit": "314f65373fe9a48ee5e187b4f06b4a69de478279",
+    "productSourceCommit": "e37c4cbb9ab92e5fe11b723feaf5ce59102d3e88",
+    "memoryLaneCommit": "8c8905e2e012cdf0fa40bd38f8a7b383663af730",
+    "compatibilityRun": "41004224774",
+    "previousCompatibilityRun": "41000215760",
+    "webRun": "41002023786",
+    "productionChanged": false,
+    "primaryDatabaseChanged": false,
+    "tests": {
+      "memoryLaneWidgetCoverage": "FAIL_HOSTED_RUN_41000215760_JOB_123884087117_0_PASSED_1_FAILED",
+      "memoryLanePixelGolden": "BLOCKED_REFERENCE_IMAGES_NOT_AVAILABLE_IN_WORKSPACE",
+      "bigLamaWorkerSuite": "PASS:55;SKIPPED:1_ENV_GATED",
+      "bigLamaVerifiedLocalModel": "PASS",
+      "bigLamaDockerHealthAndInference": "PASS",
+      "webBuildAndChromium": "PASS_HOSTED_RUN_41002023786_JOBS_123888388605_123888388822",
+      "compatibilityPrevious": "FAIL_RUN_41000215760_ONLY_STOCK_ANDROID_580_DEPENDENCY_STARTUP",
+      "compatibilityExactHead": "PENDING_RUN_41004224774",
+      "iosStrictContract": "UNRESOLVED_RUN_41000215760_ANNOTATIONS_3_OF_5_0_OF_1_10_OF_2",
+      "gitDiffCheck": "PASS"
+    },
+    "openGates": [
+      "EXACT_HEAD_COMPATIBILITY_RUN_41004224774",
+      "MEMORIES_WIDGET_TEST_DIAGNOSIS_AND_STRICT_RERUN",
+      "STRICT_IOS_TEST_RERUN_WITH_PIPEFAIL",
+      "PRODUCTION_SIGNING_AND_RELEASE_ARTIFACT",
+      "SAMSUNG_S23_AND_PHYSICAL_IOS",
+      "HP_NAS_AND_POPULATED_RESTORE_BENCHMARKS",
+      "PRODUCTION_SERVICE_OPERATIONS"
+    ],
+    "overall": "NOT_RELEASE_READY"
+  },
+  "stage13": {
+    "status": "LOCAL_SOURCE_VALIDATED_FINAL_HOSTED_GATES_BY_SHA",
+    "sourceCommit": "0719bf7042d128b09a3591f3a084af1edf2b5ae6",
+    "baselineCommit": "0b0e924b75b2e3417dd3a35a96771b94b15fc69f",
+    "baselineCompatibilityRun": "41052091521",
+    "baselineMemoriesRun": "41052091513",
+    "tests": {
+      "flutterAnalyze": "PASS:NO_ISSUES",
+      "sqliteRecovery": "PASS:15",
+      "flutterFeatureSelection": "PASS:1962",
+      "livePhotoTimeline": "PASS:74_INCLUDED_IN_FEATURE_SELECTION",
+      "backendUnit": "PASS:263",
+      "backendPostgres": "PASS:67;FRESH_MIGRATIONS:175",
+      "webFocused": "PASS:78",
+      "hpRunbookShellSyntax": "PASS:7_BLOCKS_NOT_EXECUTED"
+    },
+    "changes": [
+      "Fix all 21 baseline SQLite test analyzer diagnostics",
+      "Validate snapshot completeness and WAL checksums before SQLite diagnosis; preserve primary and pending operations",
+      "Align obsolete thumbnail expectation with existing remote Live Photo playback; include it in strict CI",
+      "Include five existing Android media policy suites in the final Kotlin gate"
+    ],
+    "hostedWorkflows": ["original-noodle-gallery-compatibility.yml", "foto-build22-web-acceptance.yml"],
+    "productionChanged": false,
+    "primaryDeviceDatabaseChanged": false,
+    "releaseApkBuilt": false,
+    "openOwnerGates": [
+      "EXISTING_KEY_SIGNED_BUILD22_APK",
+      "SAMSUNG_BUILD21_TO_22_AND_SHIZUKU_PICKER",
+      "PHYSICAL_IPHONE_ORIGINAL_IOS",
+      "HP_POPULATED_BACKUP_RESTORE_UPGRADE",
+      "SYNOLOGY_NFS_AND_READ_ONLY_DUPLICATE_INVENTORY",
+      "HP_BIG_LAMA_STAGING",
+      "OWNER_PRODUCTION_APPROVAL"
+    ],
     "overall": "NOT_RELEASE_READY"
   }
 }

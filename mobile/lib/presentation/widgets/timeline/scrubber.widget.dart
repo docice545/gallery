@@ -1,17 +1,58 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/constants.dart';
+import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/place.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
-import 'package:immich_mobile/extensions/theme_extensions.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
+import 'package:immich_mobile/presentation/widgets/timeline/fixed/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/scrubber_segments.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/segment.model.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/timeline.state.dart';
 import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
+import 'package:immich_mobile/providers/place_names.provider.dart';
+import 'package:intl/intl.dart';
+
+/// Local synced metadata only. No asset fetch, GPS lookup or geocoder is used.
+final timelineDateLocationProvider = FutureProvider.autoDispose.family<Place?, String>((ref, assetId) async {
+  final db = ref.watch(driftProvider);
+  final exif = await (db.select(db.remoteExifEntity)..where((row) => row.assetId.equals(assetId))).getSingleOrNull();
+  return exif == null ? null : Place(name: exif.city ?? '', assetId: assetId, state: exif.state, country: exif.country);
+});
+
+String? timelinePlaceLabel(String? city, String? state, String? country) {
+  for (final part in [city, state, country]) {
+    if (part != null && part.trim().isNotEmpty) {
+      return part.trim();
+    }
+  }
+  return null;
+}
+
+/// Binary search over cached layout geometry; no scan of the photo library.
+Segment? visibleTimelineDateSegment(List<Segment> segments, double offset) {
+  if (segments.isEmpty || !offset.isFinite) {
+    return null;
+  }
+  var low = 0;
+  var high = segments.length;
+  while (low < high) {
+    final middle = (low + high) ~/ 2;
+    if (segments[middle].startOffset <= offset) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  final segment = segments[math.max(0, low - 1)];
+  return segment.bucket is TimeBucket ? segment : null;
+}
 
 /// A widget that will display a BoxScrollView with a ScrollThumb that can be dragged
 /// for quick navigation of the BoxScrollView.
@@ -36,6 +77,9 @@ class Scrubber extends ConsumerStatefulWidget {
 
   /// Whether an app bar is present, affects coordinate calculations
   final bool hasAppBar;
+  final bool showFloatingDate;
+  final BaseAsset? Function(int index)? assetAtIndex;
+  final double Function()? contentStartOffset;
 
   Scrubber({
     super.key,
@@ -47,6 +91,9 @@ class Scrubber extends ConsumerStatefulWidget {
     this.snapToMonth = true,
     this.groupBy = GroupAssetsBy.day,
     this.hasAppBar = true,
+    this.showFloatingDate = false,
+    this.assetAtIndex,
+    this.contentStartOffset,
     required this.child,
   }) : assert(child.scrollDirection == Axis.vertical);
 
@@ -63,6 +110,7 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
 
   late AnimationController _thumbAnimationController;
   Timer? _fadeOutTimer;
+  Timer? _labelFadeTimer;
   late Animation<double> _thumbAnimation;
 
   late AnimationController _labelAnimationController;
@@ -72,12 +120,34 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
 
   late ScrollController _scrollController;
 
+  // A primary controller can briefly serve multiple scroll views during route
+  // transitions. Its .position/.offset getters require exactly one attachment;
+  // choosing an arbitrary one (or controller.jumpTo) could move another view.
+  ScrollPosition? get _position {
+    final position = _scrollController.positions.singleOrNull;
+    if (position == null ||
+        !position.hasPixels ||
+        !position.hasContentDimensions ||
+        !position.hasViewportDimension ||
+        !position.pixels.isFinite ||
+        !position.maxScrollExtent.isFinite ||
+        !position.viewportDimension.isFinite) {
+      return null;
+    }
+    return position;
+  }
+
   double get _currentOffset {
-    if (_scrollController.hasClients != true) {
+    final position = _position;
+    if (position == null) {
       return 0.0;
     }
 
-    return _scrollController.offset * _scrubberHeight / _scrollController.position.maxScrollExtent;
+    final maxExtent = position.maxScrollExtent;
+    if (maxExtent <= 0 || !_scrubberHeight.isFinite || _scrubberHeight <= 0) {
+      return 0.0;
+    }
+    return (position.pixels / maxExtent * _scrubberHeight).clamp(0.0, _scrubberHeight);
   }
 
   @override
@@ -130,15 +200,69 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
     _thumbAnimationController.dispose();
     _labelAnimationController.dispose();
     _fadeOutTimer?.cancel();
+    _labelFadeTimer?.cancel();
     super.dispose();
   }
 
   void _resetThumbTimer() {
     _fadeOutTimer?.cancel();
     _fadeOutTimer = Timer(kTimelineScrubberFadeOutDuration, () {
-      unawaited(_thumbAnimationController.reverse());
+      if (mounted) {
+        unawaited(_thumbAnimationController.reverse());
+      }
       _fadeOutTimer = null;
     });
+  }
+
+  void _scheduleLabelFade() {
+    _labelFadeTimer?.cancel();
+    _labelFadeTimer = Timer(const Duration(milliseconds: 1400), () {
+      if (!mounted || _isDragging) {
+        return;
+      }
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _labelAnimationController.value = 0;
+      } else {
+        unawaited(_labelAnimationController.reverse());
+      }
+    });
+  }
+
+  ({String date, BaseAsset? asset})? _visibleDateLabel() {
+    final position = _position;
+    if (position == null) {
+      return null;
+    }
+    final offset = position.pixels + widget.topPadding - (widget.contentStartOffset?.call() ?? 0);
+    final segment = visibleTimelineDateSegment(widget.layoutSegments, offset);
+    if (segment == null) {
+      return null;
+    }
+    final date = (segment.bucket as TimeBucket).date;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final label = widget.groupBy == GroupAssetsBy.year
+        ? DateFormat.y(locale).format(date)
+        : widget.groupBy == GroupAssetsBy.month
+        ? DateFormat.yMMMM(locale).format(date)
+        : DateFormat.yMMMd(locale).format(date);
+    var assetIndex = segment.firstAssetIndex;
+    if (segment is FixedSegment && segment.rows.rowCount > 0) {
+      final row = segment.rows.rowForOffset(offset - segment.gridOffset);
+      assetIndex += segment.rows.firstAssetIndexForRow(row);
+    }
+    return (date: label, asset: widget.assetAtIndex?.call(assetIndex));
+  }
+
+  void _showLabel() {
+    _labelFadeTimer?.cancel();
+    if (!widget.showFloatingDate) {
+      return;
+    }
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _labelAnimationController.value = 1;
+    } else if (_labelAnimationController.status != AnimationStatus.forward && _labelAnimationController.value < 1) {
+      unawaited(_labelAnimationController.forward());
+    }
   }
 
   int getSnapSegmentCount() {
@@ -146,6 +270,9 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   }
 
   bool _onScrollNotification(ScrollNotification notification) {
+    if (notification.depth != 0 || notification.metrics.axis != Axis.vertical) {
+      return false;
+    }
     if (_isDragging) {
       // If the user is dragging the thumb, we don't want to update the position
       return false;
@@ -158,14 +285,18 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
     }
 
     setState(() {
+      if (notification is ScrollStartNotification) {
+        _showLabel();
+      }
       if (notification is ScrollUpdateNotification) {
         _thumbTopOffset = _currentOffset;
-        if (_labelAnimation.status != AnimationStatus.reverse) {
-          unawaited(_labelAnimationController.reverse());
-        }
+        _showLabel();
         if (_thumbAnimationController.status != AnimationStatus.forward) {
           unawaited(_thumbAnimationController.forward());
         }
+      }
+      if (notification is ScrollEndNotification) {
+        _scheduleLabelFade();
       }
       _resetThumbTimer();
     });
@@ -174,16 +305,20 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   }
 
   void _onDragStart(DragStartDetails _) {
+    if (_position == null) {
+      return;
+    }
     setState(() {
       _isDragging = true;
-      unawaited(_labelAnimationController.forward());
+      _showLabel();
       _fadeOutTimer?.cancel();
       _lastLabel = null;
     });
   }
 
   void _onDragUpdate(DragUpdateDetails details) {
-    if (!_isDragging) {
+    final position = _position;
+    if (!_isDragging || position == null) {
       return;
     }
 
@@ -210,51 +345,21 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
       // If there are less than kMinMonthsToEnableScrubberSnap months, we don't need to snap to segments
       setState(() {
         _thumbTopOffset = dragPosition;
-        _scrollController.jumpTo((dragPosition / _scrubberHeight) * _scrollController.position.maxScrollExtent);
+        position.jumpTo((dragPosition / _scrubberHeight) * position.maxScrollExtent);
       });
     } else if (nearestMonthSegment != null) {
       _snapToSegment(nearestMonthSegment);
     }
   }
 
-  /// Calculate the drag position relative to the scrubber area
-  ///
-  /// This method converts the global drag coordinates from the gesture detector
-  /// into a position relative to the scrubber's active area (excluding padding).
-  ///
-  /// The scrubber has padding at the top and bottom, so we need to:
-  /// 1. Calculate the actual draggable area (timelineHeight - topPadding - bottomPadding)
-  /// 2. Convert the global Y position to a position within this draggable area
-  /// 3. Clamp the result to ensure it stays within bounds (0 to dragAreaHeight)
-  ///
-  /// Example:
-  /// - If timelineHeight = 800, topPadding = 50, bottomPadding = 50
-  /// - Then dragAreaHeight = 700 (the actual scrubber area)
-  /// - If user drags to global Y position that's 100 pixels from the top
-  /// - The relative position would be 100 - 50 = 50 (50 pixels into the scrubber area)
+  // Both the thumb and segment marks live inside this Stack. App bars, safe
+  // areas and nested viewports must use the same local coordinate system.
   double _calculateDragPosition(DragUpdateDetails details) {
-    if (widget.hasAppBar) {
-      final dragAreaTop = widget.topPadding;
-      final dragAreaBottom = widget.timelineHeight - widget.bottomPadding;
-      final dragAreaHeight = dragAreaBottom - dragAreaTop;
-
-      final relativePosition = details.globalPosition.dy - dragAreaTop;
-
-      // Make sure the position stays within the scrubber's bounds
-      return relativePosition.clamp(0.0, dragAreaHeight);
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) {
+      return _thumbTopOffset;
     }
-
-    // Get the local position relative to the gesture detector
-    final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox != null) {
-      final localPosition = renderBox.globalToLocal(details.globalPosition);
-      return localPosition.dy.clamp(0.0, _scrubberHeight);
-    }
-
-    // Fallback to current logic if render box is not available
-    final dragAreaTop = widget.topPadding;
-    final relativePosition = details.globalPosition.dy - dragAreaTop;
-    return relativePosition.clamp(0.0, _scrubberHeight);
+    return (box.globalToLocal(details.globalPosition).dy - widget.topPadding).clamp(0.0, _scrubberHeight);
   }
 
   /// Find the segment closest to the given position
@@ -291,57 +396,82 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
   }
 
   void _scrollToLayoutSegment(int layoutSegmentIndex) {
+    final position = _position;
+    if (position == null) {
+      return;
+    }
     final layoutSegment = widget.layoutSegments[layoutSegmentIndex];
-    final maxScrollExtent = _scrollController.position.maxScrollExtent;
-    final viewportHeight = _scrollController.position.viewportDimension;
-
-    final targetScrollOffset = layoutSegment.startOffset;
-    final centeredOffset = targetScrollOffset - (viewportHeight / 4) + 100 + (widget.monthSegmentSnappingOffset ?? 0.0);
-
-    _scrollController.jumpTo(centeredOffset.clamp(0.0, maxScrollExtent));
+    final maxScrollExtent = position.maxScrollExtent;
+    // Invert _visibleDateLabel's mapping exactly. A guessed memories/header
+    // height or a fraction of the viewport can land in the previous year.
+    final contentStart = widget.contentStartOffset?.call() ?? widget.monthSegmentSnappingOffset ?? 0.0;
+    final targetOffset = layoutSegment.startOffset + contentStart - widget.topPadding;
+    position.jumpTo(targetOffset.clamp(0.0, maxScrollExtent));
   }
 
-  void _onDragEnd(DragEndDetails _) {
-    unawaited(_labelAnimationController.reverse());
-    setState(() {
-      _isDragging = false;
-    });
-
+  void _finishDrag() {
+    _isDragging = false;
+    _scheduleLabelFade();
     _resetThumbTimer();
+  }
+
+  void _onDragEnd(DragEndDetails _) => _onDragCancel();
+
+  void _onDragCancel() {
+    if (!_isDragging) {
+      return;
+    }
+    setState(_finishDrag);
   }
 
   @override
   Widget build(BuildContext ctx) {
-    Text? label;
-    if (_scrollController.hasClients == true) {
-      // Cache to avoid multiple calls to [_currentOffset]
-      final scrollOffset = _currentOffset;
-      final labelText =
-          _segments.lastWhereOrNull((segment) => segment.startOffset <= scrollOffset)?.scrollLabel ??
-          _segments.firstOrNull?.scrollLabel;
-      label = labelText != null
-          ? Text(
-              labelText,
-              style: ctx.textTheme.bodyLarge?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
-            )
-          : null;
+    final position = _position;
+    if (_isDragging && (position == null || position.maxScrollExtent <= 0)) {
+      // Removing an accepted drag's detector disposes its recognizer without
+      // delivering onEnd/onCancel. End its bookkeeping in this rebuild so later
+      // list scroll notifications are not mistaken for an active thumb drag.
+      _finishDrag();
     }
+    final label = widget.showFloatingDate ? _visibleDateLabel() : null;
 
     return NotificationListener<ScrollNotification>(
       onNotification: _onScrollNotification,
       child: Stack(
         children: [
           RepaintBoundary(child: widget.child),
+          if (label != null)
+            PositionedDirectional(
+              top: math.max(widget.topPadding, MediaQuery.paddingOf(ctx).top) + 8,
+              start: kScrubberThumbHeight + 12,
+              end: kScrubberThumbHeight + 12,
+              child: IgnorePointer(
+                child: RepaintBoundary(
+                  child: AnimatedBuilder(
+                    animation: _labelAnimation,
+                    builder: (context, _) => _labelAnimationController.isDismissed
+                        ? const SizedBox.shrink()
+                        : FadeTransition(
+                            opacity: _labelAnimation,
+                            child: Align(
+                              alignment: Alignment.topCenter,
+                              child: _FloatingDateLabel(date: label.date, asset: label.asset),
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ),
           // Scroll Segments - wrapped in RepaintBoundary for better performance
           RepaintBoundary(
             child: _SegmentsLayer(
               key: ValueKey('segments_${_isDragging}_${_segments.length}'),
               segments: _segments,
               topPadding: widget.topPadding,
-              isDragging: _isDragging,
+              isDragging: _isDragging && position != null,
             ),
           ),
-          if (_scrollController.hasClients && _scrollController.position.maxScrollExtent > 0)
+          if (position != null && position.maxScrollExtent > 0)
             PositionedDirectional(
               top: _thumbTopOffset + widget.topPadding,
               end: 0,
@@ -350,7 +480,8 @@ class ScrubberState extends ConsumerState<Scrubber> with TickerProviderStateMixi
                   onVerticalDragStart: _onDragStart,
                   onVerticalDragUpdate: _onDragUpdate,
                   onVerticalDragEnd: _onDragEnd,
-                  child: _Scrubber(thumbAnimation: _thumbAnimation, labelAnimation: _labelAnimation, label: label),
+                  onVerticalDragCancel: _onDragCancel,
+                  child: _Scrubber(thumbAnimation: _thumbAnimation),
                 ),
               ),
             ),
@@ -416,49 +547,87 @@ class _SegmentWidget extends StatelessWidget {
   }
 }
 
-class _ScrollLabel extends StatelessWidget {
-  final Text label;
-  final Color backgroundColor;
-  final Animation<double> animation;
+class _FloatingDateLabel extends ConsumerWidget {
+  const _FloatingDateLabel({required this.date, this.asset});
 
-  const _ScrollLabel({required this.label, required this.backgroundColor, required this.animation});
+  final String date;
+  final BaseAsset? asset;
 
   @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: FadeTransition(
-        opacity: animation,
-        child: Container(
-          margin: const EdgeInsets.only(right: 12.0),
-          child: Material(
-            elevation: 4.0,
-            color: backgroundColor,
-            borderRadius: const BorderRadius.all(Radius.circular(16.0)),
-            child: Container(
-              constraints: const BoxConstraints(maxHeight: 28),
-              padding: const EdgeInsets.symmetric(horizontal: 10.0),
-              alignment: Alignment.center,
-              child: label,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = asset;
+    final embedded = current is RemoteAssetExif
+        ? Place(
+            name: current.exifInfo.city ?? '',
+            assetId: current.id,
+            state: current.exifInfo.state,
+            country: current.exifInfo.country,
+          )
+        : null;
+    final place =
+        embedded ??
+        (current?.remoteId == null ? null : ref.watch(timelineDateLocationProvider(current!.remoteId!)).valueOrNull);
+    final location = place == null
+        ? null
+        : ref.watch(placeDisplayNamesProvider(Localizations.localeOf(context))).timelineLabel(place);
+    final colors = _ScrubberColors.of(context);
+    return Material(
+      key: const Key('timeline-floating-date'),
+      color: colors.labelBackground,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              date,
+              key: const Key('timeline-floating-date-text'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.textTheme.labelMedium?.copyWith(
+                color: colors.labelForeground,
+                fontWeight: FontWeight.bold,
+              ),
             ),
-          ),
+            if (location != null)
+              Text(
+                location,
+                key: const Key('timeline-floating-location-text'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: context.textTheme.labelSmall?.copyWith(color: colors.labelForeground),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _Scrubber extends StatelessWidget {
-  final Text? label;
-  final Animation<double> thumbAnimation;
-  final Animation<double> labelAnimation;
+// Reuse the existing theme accent (including the user's preset/dynamic color).
+// An opaque, tinted surface keeps date contrast independent of the photo below.
+class _ScrubberColors {
+  _ScrubberColors.of(BuildContext context)
+    : thumbBackground = context.colorScheme.primary,
+      labelBackground = context.colorScheme.surfaceContainerHigh;
 
-  const _Scrubber({this.label, required this.thumbAnimation, required this.labelAnimation});
+  final Color thumbBackground;
+  final Color labelBackground;
+  Color get labelForeground => _contrastingForeground(labelBackground);
+}
+
+Color _contrastingForeground(Color background) => background.computeLuminance() > .179 ? Colors.black : Colors.white;
+
+class _Scrubber extends StatelessWidget {
+  final Animation<double> thumbAnimation;
+
+  const _Scrubber({required this.thumbAnimation});
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = context.isDarkTheme
-        ? context.colorScheme.primary.darken(amount: .5)
-        : context.colorScheme.primary;
+    final colors = _ScrubberColors.of(context);
 
     return _SlideFadeTransition(
       animation: thumbAnimation,
@@ -466,8 +635,8 @@ class _Scrubber extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-          if (label != null) _ScrollLabel(label: label!, backgroundColor: backgroundColor, animation: labelAnimation),
-          _CircularThumb(backgroundColor),
+          // The existing date label now lives at a fixed viewport position above.
+          _CircularThumb(colors.thumbBackground),
         ],
       ),
     );
@@ -482,8 +651,9 @@ class _CircularThumb extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      foregroundPainter: const _ArrowPainter(Colors.white),
+      foregroundPainter: _ArrowPainter(_contrastingForeground(backgroundColor)),
       child: Material(
+        key: const Key('timeline-scroll-thumb'),
         elevation: 4.0,
         color: backgroundColor,
         borderRadius: const BorderRadius.only(
@@ -506,7 +676,7 @@ class _ArrowPainter extends CustomPainter {
   const _ArrowPainter(this.color);
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ArrowPainter oldDelegate) => color != oldDelegate.color;
 
   @override
   void paint(Canvas canvas, Size size) {

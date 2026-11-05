@@ -6,6 +6,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/models/activities/activity.model.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/base_action_button.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/current_album.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
@@ -47,6 +48,8 @@ class LikeActivityActionButton extends ConsumerWidget {
         );
 
         return BaseActionButton(
+          fotoKind: FotoIconKind.favorite,
+          selected: liked != null,
           maxWidth: 60,
           iconData: liked != null ? Icons.thumb_up : Icons.thumb_up_off_alt,
           label: context.t.like,
@@ -58,6 +61,7 @@ class LikeActivityActionButton extends ConsumerWidget {
 
       // default to empty heart during loading
       loading: () => BaseActionButton(
+        fotoKind: FotoIconKind.favorite,
         iconData: Icons.thumb_up_off_alt,
         label: context.t.like,
         iconOnly: iconOnly,

@@ -3,7 +3,15 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches: [main, 'release/*']
+    # Exact-source evidence for the isolated audit candidate, before any merge.
+    branches:
+      [
+        main,
+        'release/*',
+        codex/issue18-cross-platform-audit,
+        codex/issue17-smart-timeline,
+        codex/issue18-backend-contract-rating,
+      ]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -87,7 +95,7 @@ jobs:
               - '.github/**'
           force-filters: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && '- .github/workflows/test.yml' || '' }}
 
-          force-events: 'workflow_dispatch'
+          force-events: 'workflow_dispatch,push'
 
   upstream-preflight:
     name: Upstream Rebase Tooling
@@ -414,8 +422,14 @@ jobs:
           github_token: ${{ github.token }}
 
       - name: Run ci-medium
-        run: mise run ci-medium
+        id: medium-tests
         if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          mise run ci-medium 2>&1 | tee "$RUNNER_TEMP/server-medium.log"
+      - name: Expose medium suite failures
+        if: failure() && steps.medium-tests.outcome == 'failure'
+        run: python3 ../.github/scripts/report-ci-failures.py test-log "$RUNNER_TEMP/server-medium.log"
 
   e2e-tests-server-cli:
     name: End-to-End Tests (Server & CLI)
@@ -473,9 +487,16 @@ jobs:
           df -h /
 
       - name: Start Docker Compose
+        id: docker-compose
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300
+        run: |
+          set -o pipefail
+          bash ../.github/scripts/pull-ci-images.sh 2>&1 | tee "$RUNNER_TEMP/e2e-compose-setup.log"
+          docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300 2>&1 | tee -a "$RUNNER_TEMP/e2e-compose-setup.log"
+      - name: Annotate disposable Compose setup failure
+        if: failure() && steps.docker-compose.outcome == 'failure'
+        run: python3 ../.github/scripts/report-ci-failures.py build "$RUNNER_TEMP/e2e-compose-setup.log"
       - name: Wait for e2e server
         run: node ../.github/scripts/wait-for-url.mjs http://127.0.0.1:2285/api/server/ping
       - name: Run e2e tests (api & cli)
@@ -511,7 +532,7 @@ jobs:
   e2e-tests-web:
     name: End-to-End Tests (Web)
     needs: pre-job
-    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).web == true) }}
+    if: ${{ (github.event_name != 'pull_request' || (github.head_ref != 'codex/foto-build17-editor' && github.head_ref != 'codex/foto-build17-dedup-acceptance' && github.head_ref != 'codex/foto-build17-editor-compact')) && (fromJSON(needs.pre-job.outputs.should_run).e2e == true || fromJSON(needs.pre-job.outputs.should_run).web == true || fromJSON(needs.pre-job.outputs.should_run).server == true) }}
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -563,9 +584,17 @@ jobs:
           df -h /
 
       - name: Docker build
+        id: docker-build
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300
+        run: |
+          set -o pipefail
+          bash ../.github/scripts/pull-ci-images.sh 2>&1 | tee "$RUNNER_TEMP/e2e-docker-build.log"
+          docker compose up -d --build --renew-anon-volumes --force-recreate --remove-orphans --wait --wait-timeout 300 2>&1 | tee -a "$RUNNER_TEMP/e2e-docker-build.log"
+      - name: Annotate disposable Docker build failure
+        if: failure() && steps.docker-build.outcome == 'failure'
+        working-directory: .
+        run: python3 .github/scripts/report-ci-failures.py build "$RUNNER_TEMP/e2e-docker-build.log"
       - name: Wait for e2e server
         run: node ../.github/scripts/wait-for-url.mjs http://127.0.0.1:2285/api/server/ping
       - name: Run e2e tests (web)
@@ -658,7 +687,15 @@ jobs:
         run: mise //mobile:codegen
 
       - name: Run tests
-        run: mise //mobile:test
+        id: mobile-tests
+        working-directory: ./mobile
+        run: |
+          set -o pipefail
+          flutter test --reporter json 2>&1 | tee "$RUNNER_TEMP/flutter-unit-tests.jsonl"
+
+      - name: Annotate full mobile failures
+        if: failure() && steps.mobile-tests.outcome == 'failure'
+        run: python3 .github/scripts/report-ci-failures.py flutter "$RUNNER_TEMP/flutter-unit-tests.jsonl"
 
   ml-unit-tests:
     name: Unit Test ML

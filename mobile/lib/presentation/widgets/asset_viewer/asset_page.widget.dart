@@ -17,6 +17,7 @@ import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.prov
 import 'package:immich_mobile/presentation/widgets/asset_viewer/asset_stack.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/ocr_overlay.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/video_viewer.widget.dart';
+import 'package:immich_mobile/presentation/widgets/deletion/ghost_trap.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail.widget.dart';
@@ -28,6 +29,7 @@ import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/view_intent/view_intent_file_path.provider.dart';
 import 'package:immich_mobile/widgets/common/immich_loading_indicator.dart';
 import 'package:immich_mobile/widgets/photo_view/photo_view.dart';
+import 'package:immich_mobile/widgets/photo_view/src/utils/photo_view_utils.dart';
 
 enum _DragIntent { none, scroll, dismiss }
 
@@ -35,8 +37,9 @@ class AssetPage extends ConsumerStatefulWidget {
   final int index;
   final int heroOffset;
   final void Function(int direction)? onTapNavigate;
+  final BaseAsset? retainedAsset;
 
-  const AssetPage({super.key, required this.index, required this.heroOffset, this.onTapNavigate});
+  const AssetPage({super.key, required this.index, required this.heroOffset, this.onTapNavigate, this.retainedAsset});
 
   @override
   ConsumerState createState() => _AssetPageState();
@@ -62,12 +65,13 @@ class _AssetPageState extends ConsumerState<AssetPage> {
   Drag? _drag;
 
   BaseAsset? _asset;
+  List<RemoteAsset>? _lastStackChildren;
 
   @override
   void initState() {
     super.initState();
     _eventSubscription = EventStream.shared.listen(_onEvent);
-    _asset = ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+    _asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) {
         return;
@@ -82,8 +86,9 @@ class _AssetPageState extends ConsumerState<AssetPage> {
   @override
   void didUpdateWidget(AssetPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.index != widget.index) {
-      _asset = ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+    if (oldWidget.index != widget.index || oldWidget.retainedAsset != widget.retainedAsset) {
+      _asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+      _lastStackChildren = null;
     }
   }
 
@@ -100,11 +105,25 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       case ViewerShowDetailsEvent():
         _showDetails();
       case TimelineReloadEvent():
-        final asset = ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+        final asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+        final previous = _asset;
+        final current = ref.read(assetViewerProvider).currentAsset;
+        // The viewer resolves active siblings before deciding whether a stack
+        // page disappeared. Keep its anchor during that asynchronous refresh.
+        if (previous is RemoteAsset &&
+            previous.stackId != null &&
+            current is RemoteAsset &&
+            current.stackId == previous.stackId &&
+            (asset is! RemoteAsset || asset.stackId != previous.stackId)) {
+          return;
+        }
         if (asset != _asset) {
           _isZoomed = false;
           _viewer.setZoomed(false);
-          setState(() => _asset = asset);
+          setState(() {
+            _asset = asset;
+            _lastStackChildren = null;
+          });
         }
       default:
     }
@@ -279,7 +298,13 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       ref.read(isPlayingMotionVideoProvider.notifier).playing = true;
 
   void _onScaleStateChanged(PhotoViewScaleState scaleState) {
-    _isZoomed = scaleState == PhotoViewScaleState.zoomedIn || scaleState == PhotoViewScaleState.covering;
+    final boundaries = _viewController?.scaleBoundaries;
+    _isZoomed = switch (scaleState) {
+      PhotoViewScaleState.zoomedIn => true,
+      PhotoViewScaleState.covering || PhotoViewScaleState.originalSize =>
+        boundaries == null || getScaleForScaleState(scaleState, boundaries) > boundaries.initialScale + .0001,
+      _ => false,
+    };
     _viewer.setZoomed(_isZoomed);
 
     if (scaleState != PhotoViewScaleState.initial) {
@@ -289,9 +314,8 @@ class _AssetPageState extends ConsumerState<AssetPage> {
       return;
     }
 
-    if (!_showingDetails) {
-      _viewer.setControls(true);
-    }
+    // Returning from a pinch/double-tap/pan is not a request for controls.
+    // Only the existing single-tap handler toggles the floating panels.
   }
 
   void _listenForScaleBoundaries(PhotoViewControllerBase? controller) {
@@ -352,7 +376,11 @@ class _AssetPageState extends ConsumerState<AssetPage> {
         index: widget.index,
         imageProvider: imageProvider,
         heroAttributes: heroAttributes,
-        loadingBuilder: (context, progress, index) => const Center(child: ImmichLoadingIndicator()),
+        loadingChildSize: !asset.isEdited && (asset.width ?? 0) > 0 && (asset.height ?? 0) > 0
+            ? Size(asset.width!.toDouble(), asset.height!.toDouble())
+            : null,
+        loadingBuilder: (context, progress, index) =>
+            Thumbnail.fromAsset(asset: asset, remoteSize: remoteThumbnailSize, fit: BoxFit.contain),
         gaplessPlayback: true,
         filterQuality: FilterQuality.high,
         tightMode: true,
@@ -415,6 +443,17 @@ class _AssetPageState extends ConsumerState<AssetPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(assetViewerProvider.select((state) => state.currentAsset), (_, current) {
+      final asset = widget.retainedAsset ?? ref.read(timelineServiceProvider).getAssetSafe(widget.index);
+      if (current != null && asset != null && current.refersToSameAsset(asset) && asset != _asset) {
+        _isZoomed = false;
+        _viewer.setZoomed(false);
+        setState(() {
+          _asset = asset;
+          _lastStackChildren = null;
+        });
+      }
+    });
     final (currentAsset, thumbnailSize) = ref.watch(
       assetViewerProvider.select((s) => (s.currentAsset, s.thumbnailSize)),
     );
@@ -431,9 +470,16 @@ class _AssetPageState extends ConsumerState<AssetPage> {
 
     BaseAsset displayAsset = asset;
     final showAssetStack = ref.watch(timelineServiceProvider.select((s) => s.origin != TimelineOrigin.trash));
-    final stackChildren = showAssetStack ? ref.watch(stackChildrenNotifier(asset)).valueOrNull : null;
+    final stackState = showAssetStack ? ref.watch(stackChildrenNotifier(asset)) : null;
+    if (stackState?.hasValue == true) {
+      _lastStackChildren = stackState!.value;
+    }
+    final stackChildren = stackState?.valueOrNull ?? (stackState?.hasError == true ? _lastStackChildren : null);
     if (stackChildren != null && stackChildren.isNotEmpty) {
-      final safeStackIndex = stackIndex.clamp(0, stackChildren.length - 1);
+      // A promoted cover changes the primary-first order asynchronously.
+      // The selected ID remains authoritative while its ordinal catches up.
+      final selectedIdIndex = stackChildren.indexWhere((frame) => frame.id == currentAsset?.id);
+      final safeStackIndex = selectedIdIndex >= 0 ? selectedIdIndex : stackIndex.clamp(0, stackChildren.length - 1);
       displayAsset = stackChildren.elementAt(safeStackIndex);
     }
 
@@ -466,15 +512,22 @@ class _AssetPageState extends ConsumerState<AssetPage> {
                 SizedBox(
                   width: viewportWidth,
                   height: viewportHeight,
-                  child: _buildPhotoView(
-                    asset: displayAsset,
-                    heroAttributes: isCurrent
-                        ? PhotoViewHeroAttributes(tag: '${asset.heroTag}_${widget.heroOffset}')
-                        : null,
-                    isCurrent: isCurrent,
-                    isPlayingMotionVideo: isPlayingMotionVideo,
-                    localFilePath: viewIntentFilePath,
-                    remoteThumbnailSize: thumbnailSize,
+                  child: GhostSource(
+                    assetKey: displayAsset.heroTag,
+                    captureInsets: EdgeInsets.only(
+                      top: MediaQuery.paddingOf(context).top + 68,
+                      bottom: MediaQuery.paddingOf(context).bottom + 68,
+                    ),
+                    child: _buildPhotoView(
+                      asset: displayAsset,
+                      heroAttributes: isCurrent
+                          ? PhotoViewHeroAttributes(tag: '${asset.heroTag}_${widget.heroOffset}')
+                          : null,
+                      isCurrent: isCurrent,
+                      isPlayingMotionVideo: isPlayingMotionVideo,
+                      localFilePath: viewIntentFilePath,
+                      remoteThumbnailSize: thumbnailSize,
+                    ),
                   ),
                 ),
                 if (showingOcr && displayAsset.width != null && displayAsset.height != null)

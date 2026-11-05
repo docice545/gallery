@@ -1,0 +1,14 @@
+test_apk_metadata_uses_binary_tools_and_correct_ids (test_preflight.Checks.test_apk_metadata_uses_binary_tools_and_correct_ids) ... ok
+test_isolated_worktree_preserves_dirty_hp_fixture_and_ignored_keys (test_preflight.Checks.test_isolated_worktree_preserves_dirty_hp_fixture_and_ignored_keys) ... ok
+test_key_certificate_match_without_signing (test_preflight.Checks.test_key_certificate_match_without_signing) ... ok
+test_key_certificate_mismatch_stops (test_preflight.Checks.test_key_certificate_mismatch_stops) ... ok
+test_next_code_rejects_invalid_or_exhausted_counter (test_preflight.Checks.test_next_code_rejects_invalid_or_exhausted_counter) ... ok
+test_next_code_uses_measured_versions_not_build_name (test_preflight.Checks.test_next_code_uses_measured_versions_not_build_name) ... ok
+test_sdk_absolute_paths_and_pinned_tools (test_preflight.Checks.test_sdk_absolute_paths_and_pinned_tools) ... ok
+test_sdk_missing_pair_stops_without_install (test_preflight.Checks.test_sdk_missing_pair_stops_without_install) ... ok
+test_wrong_apk_package_rejected (test_preflight.Checks.test_wrong_apk_package_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.150s
+
+OK

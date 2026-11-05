@@ -29,7 +29,7 @@ class ShareAction extends AssetActionBuilder {
     }
 
     return .new(
-      icon: CurrentPlatform.isAndroid ? Icons.share_rounded : Icons.ios_share_rounded,
+      icon: Icons.share_rounded,
       label: context.t.share,
       onAction: () => _share(context, ref, assets, ref.read(appConfigProvider).share.fileType),
       onSecondaryAction: () => _promptQualityAndShare(context, ref, assets),

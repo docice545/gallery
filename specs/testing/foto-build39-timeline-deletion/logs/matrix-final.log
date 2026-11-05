@@ -1,0 +1,33 @@
+00:00 +0: loading /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: Reflow resize keeps decoded pixels but a recycled server tile clears them
+00:01 +1: Reflow resize keeps decoded pixels but a recycled local tile clears them
+00:01 +2: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:02 +3: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer
+00:03 +4: Timeline _Case.server for 4 selected photos uses the real action and thumbnail renderer
+00:04 +5: Timeline _Case.local for 1 selected photos uses the real action and thumbnail renderer
+00:04 +6: Timeline _Case.local for 3 selected photos uses the real action and thumbnail renderer
+00:05 +7: Timeline _Case.local for 4 selected photos uses the real action and thumbnail renderer
+00:06 +8: Timeline _Case.disabled for 1 selected photos uses the real action and thumbnail renderer
+00:06 +9: Timeline _Case.disabled for 3 selected photos uses the real action and thumbnail renderer
+00:06 +10: Timeline _Case.reduced for 1 selected photos uses the real action and thumbnail renderer
+00:07 +11: Timeline _Case.reduced for 3 selected photos uses the real action and thumbnail renderer
+00:08 +12: Timeline _Case.rejected for 1 selected photos uses the real action and thumbnail renderer
+Error (Failed to delete assets): Bad state: Synthetic server rejection
+test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart 275:13  main.<fn>.operation
+package:immich_mobile/presentation/actions/delete.action.dart 369:5          DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:18         DeleteAction._delete
+
+00:08 +13: Timeline _Case.rejected for 3 selected photos uses the real action and thumbnail renderer
+Error (Failed to delete assets): Bad state: Synthetic server rejection
+test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart 275:13  main.<fn>.operation
+package:immich_mobile/presentation/actions/delete.action.dart 369:5          DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:18         DeleteAction._delete
+
+00:09 +14: Timeline _Case.osCancelled for 1 selected photos uses the real action and thumbnail renderer
+00:09 +15: Timeline _Case.osCancelled for 3 selected photos uses the real action and thumbnail renderer
+00:10 +16: Timeline _Case.unloaded for 1 selected photos uses the real action and thumbnail renderer
+00:10 +17: Timeline _Case.unloaded for 3 selected photos uses the real action and thumbnail renderer
+00:10 +18: (tearDownAll)
+00:10 +18: All tests passed!

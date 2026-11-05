@@ -7,6 +7,7 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/events.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/domain/utils/event_stream.dart';
+import 'package:immich_mobile/extensions/platform_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/archive.action.dart';
@@ -14,6 +15,7 @@ import 'package:immich_mobile/presentation/actions/asset_debug.action.dart';
 import 'package:immich_mobile/presentation/actions/cast.action.dart';
 import 'package:immich_mobile/presentation/actions/delete.action.dart';
 import 'package:immich_mobile/presentation/actions/download.action.dart';
+import 'package:immich_mobile/presentation/actions/google_lens.action.dart';
 import 'package:immich_mobile/presentation/actions/lock.action.dart';
 import 'package:immich_mobile/presentation/actions/manage_stack.action.dart';
 import 'package:immich_mobile/presentation/actions/open_in_browser.action.dart';
@@ -29,6 +31,7 @@ import 'package:immich_mobile/presentation/actions/stack.action.dart';
 import 'package:immich_mobile/presentation/actions/upload.action.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/base_action_button.widget.dart';
 import 'package:immich_mobile/presentation/widgets/action_buttons/like_activity_action_button.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_mapping.dart';
 import 'package:immich_mobile/providers/asset_viewer/view_in_timeline_action.dart';
 import 'package:immich_mobile/routing/router.dart';
 
@@ -70,6 +73,7 @@ enum ActionButtonType {
   cast,
   setAlbumCover,
   similarPhotos,
+  googleLens,
   setProfilePicture,
   viewInTimeline,
   slideshow,
@@ -124,9 +128,7 @@ enum ActionButtonType {
         context.isOwner && //
             context.isInLockedView && //
             context.asset.hasRemote,
-      ActionButtonType.deleteLocal =>
-        !context.isInLockedView && //
-            context.asset.hasLocal,
+      ActionButtonType.deleteLocal => false,
       // Gallery uses two independent deletion actions:
       // move to Trash, or remove the device copy.
       ActionButtonType.deleteEverywhere => false,
@@ -160,6 +162,13 @@ enum ActionButtonType {
       ActionButtonType.similarPhotos =>
         !context.isInLockedView && //
             context.asset is RemoteAsset,
+      ActionButtonType.googleLens =>
+        CurrentPlatform.isAndroid &&
+            context.source == ActionSource.viewer &&
+            context.asset.isImage &&
+            !context.isInLockedView &&
+            context.timelineOrigin != TimelineOrigin.trash &&
+            !(context.asset is RemoteAsset && (context.asset as RemoteAsset).isTrashed),
       ActionButtonType.setProfilePicture =>
         !context.isInLockedView && //
             context.asset is RemoteAsset && //
@@ -185,45 +194,93 @@ enum ActionButtonType {
     bool menuItem = false,
   ]) {
     return switch (this) {
-      ActionButtonType.advancedInfo => ActionMenuItem(action: AssetDebugAction(source: context.source)),
-      ActionButtonType.share => ActionMenuItem(action: ShareAction(source: context.source)),
-      ActionButtonType.shareLink => ActionMenuItem(action: ShareLinkAction(source: context.source)),
-      ActionButtonType.slideshow => const ActionMenuItem(action: SlideshowAction()),
-      ActionButtonType.archive ||
-      ActionButtonType.unarchive => ActionMenuItem(action: ArchiveAction(source: context.source)),
-      ActionButtonType.download => ActionMenuItem(action: DownloadAction(source: context.source)),
-      ActionButtonType.restoreTrash => ActionMenuItem(action: RestoreAction(source: context.source)),
-      ActionButtonType.delete => ActionMenuItem(action: DeleteAction(source: context.source)),
-      ActionButtonType.moveToLockFolder ||
-      ActionButtonType.removeFromLockFolder => ActionMenuItem(action: LockAction(source: context.source)),
-      ActionButtonType.deleteLocal => ActionMenuItem(action: CleanupLocalAction(source: context.source)),
-      ActionButtonType.deleteEverywhere => ActionMenuItem(action: DeleteEverywhereAction(source: context.source)),
+      ActionButtonType.advancedInfo => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: AssetDebugAction(source: context.source),
+      ),
+      ActionButtonType.share => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: ShareAction(source: context.source),
+      ),
+      ActionButtonType.shareLink => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: ShareLinkAction(source: context.source),
+      ),
+      ActionButtonType.slideshow => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: const SlideshowAction(),
+      ),
+      ActionButtonType.archive || ActionButtonType.unarchive => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: ArchiveAction(source: context.source),
+      ),
+      ActionButtonType.download => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: DownloadAction(source: context.source),
+      ),
+      ActionButtonType.restoreTrash => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: RestoreAction(source: context.source),
+      ),
+      ActionButtonType.delete => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: DeleteAction(source: context.source),
+      ),
+      ActionButtonType.moveToLockFolder || ActionButtonType.removeFromLockFolder => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: LockAction(source: context.source),
+      ),
+      ActionButtonType.deleteLocal => const SizedBox.shrink(),
+      ActionButtonType.deleteEverywhere => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: DeleteEverywhereAction(source: context.source),
+      ),
       ActionButtonType.upload => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
         action: UploadAction(source: context.source, showProgress: context.source == ActionSource.viewer),
       ),
       ActionButtonType.removeFromAlbum => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
         action: RemoveFromAlbumAction(source: context.source, albumId: context.currentAlbum!.id),
       ),
       ActionButtonType.setAlbumCover => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
         action: SetAlbumCoverAction(source: context.source, albumId: context.currentAlbum!.id),
       ),
       ActionButtonType.likeActivity => LikeActivityActionButton(iconOnly: iconOnly, menuItem: menuItem),
-      ActionButtonType.manageStack => ActionMenuItem(action: ManageStackAction(source: context.source)),
-      ActionButtonType.unstack => ActionMenuItem(action: StackAction(source: context.source)),
+      ActionButtonType.manageStack => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: ManageStackAction(source: context.source),
+      ),
+      ActionButtonType.unstack => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: StackAction(source: context.source),
+      ),
       ActionButtonType.openInBrowser => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
         action: OpenInBrowserAction(remoteId: context.asset.remoteId!, origin: context.timelineOrigin),
       ),
       ActionButtonType.similarPhotos => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
         action: SimilarPhotosAction(assetId: (context.asset as RemoteAsset).id),
       ),
-      ActionButtonType.setProfilePicture => ActionMenuItem(action: SetProfilePictureAction(asset: context.asset)),
+      ActionButtonType.googleLens => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: GoogleLensAction(asset: context.asset, viewerContext: buildContext),
+      ),
+      ActionButtonType.setProfilePicture => ActionMenuItem(
+        fotoKind: fotoViewerActionIcons[this],
+        action: SetProfilePictureAction(asset: context.asset),
+      ),
       ActionButtonType.openInfo => BaseActionButton(
+        fotoKind: fotoViewerActionIcons[this],
         label: StaticTranslations.instance.info,
         iconData: Icons.info_outline,
         menuItem: true,
         onPressed: () => EventStream.shared.emit(const ViewerShowDetailsEvent()),
       ),
       ActionButtonType.viewInTimeline => BaseActionButton(
+        fotoKind: fotoViewerActionIcons[this],
         label: StaticTranslations.instance.view_in_timeline,
         iconData: Icons.image_search,
         iconOnly: iconOnly,
@@ -242,7 +299,7 @@ enum ActionButtonType {
                 goToTimeline: () => buildContext.navigateTo(const MainTimelineRoute()),
               ),
       ),
-      ActionButtonType.cast => const ActionMenuItem(action: CastAction()),
+      ActionButtonType.cast => ActionMenuItem(fotoKind: fotoViewerActionIcons[this], action: const CastAction()),
     };
   }
 
@@ -276,7 +333,7 @@ class ActionButtonBuilder {
   static const Set<ActionButtonType> defaultViewerBottomBarButtons = {
     ActionButtonType.share,
     ActionButtonType.moveToLockFolder,
-    ActionButtonType.upload,
+    ActionButtonType.googleLens,
     ActionButtonType.delete,
     ActionButtonType.archive,
     ActionButtonType.unarchive,

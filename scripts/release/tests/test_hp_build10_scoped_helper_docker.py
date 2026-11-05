@@ -30,6 +30,7 @@ class DockerHelper(unittest.TestCase):
                                   check=True, timeout=30).stdout.strip()
         image = docker('image', 'inspect', 'redis:7-alpine', '--format', '{{.Id}}')
         containers = []
+        images = []
         label = 'gallery.scoped-helper.fixture=' + uuid.uuid4().hex
         def cleanup():
             owned = list(dict.fromkeys([*containers, *docker('ps', '-aq', '--no-trunc', '--filter', 'label='+label).split()]))
@@ -37,7 +38,19 @@ class DockerHelper(unittest.TestCase):
                 item = json.loads(docker('inspect', identifier))[0]
                 self.assertEqual(item['Config']['Labels'].get('gallery.scoped-helper.fixture'), label.split('=', 1)[1])
                 docker('rm', '-f', identifier)  # Only these explicitly labelled, disposable IDs.
+            for identifier in images:
+                docker('image', 'rm', identifier)  # Only metadata images created by this fixture.
         self.addCleanup(cleanup)
+        # Current Redis omits Config.User; Docker materializes it as "" on a
+        # container. The production guard correctly requires exact image
+        # defaults. Give this synthetic target an explicit root identity, like
+        # the existing Gallery image's explicit default, without weakening that
+        # guard or modifying any cached image/tag. No process is started here.
+        seed = docker('create', '--pull', 'never', '--label', label,
+                      '--network', 'none', '--read-only', '--entrypoint', '/bin/true', image)
+        containers.append(seed)
+        image = docker('commit', '--change', 'USER 0', seed)
+        images.append(image)
         tmp = tempfile.TemporaryDirectory(prefix='gallery-helper-docker-')
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name); root.chmod(0o755)

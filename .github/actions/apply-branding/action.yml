@@ -38,7 +38,8 @@ runs:
         BUILD_NUMBER: ${{ inputs.build_number }}
       run: |
         if [[ "$RUNNER_OS" == "macOS" ]]; then
-          export PATH="/opt/homebrew/opt/gnu-sed/libexec/gnubin:/opt/homebrew/opt/coreutils/libexec/gnubin:$PATH"
+          brew_prefix="$(brew --prefix)"
+          export PATH="$brew_prefix/opt/gnu-sed/libexec/gnubin:$brew_prefix/opt/coreutils/libexec/gnubin:$PATH"
         fi
         ./branding/scripts/apply-branding.sh
 

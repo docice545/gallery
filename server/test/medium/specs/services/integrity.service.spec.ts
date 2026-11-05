@@ -15,8 +15,9 @@ import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { SystemMetadataRepository } from 'src/repositories/system-metadata.repository.js';
 import { DB } from 'src/schema/index.js';
 import { IntegrityService } from 'src/services/integrity.service.js';
+import { NotificationService } from 'src/services/notification.service.js';
 import { newMediumService } from 'test/medium.factory.js';
-import { getKyselyDB, makeStream } from 'test/utils.js';
+import { getKyselyDB, makeStream, newTestService } from 'test/utils.js';
 
 let defaultDatabase: Kysely<DB>;
 
@@ -952,7 +953,16 @@ describe(IntegrityService.name, () => {
       const events = ctx.getMock(EventRepository);
 
       storage.unlink.mockResolvedValue(void 0);
-      events.emit.mockResolvedValue(void 0);
+      const { sut: notifications, mocks: notificationMocks } = newTestService(NotificationService, {
+        asset: ctx.get(AssetRepository),
+      });
+      // Exercise the real owner-scoped repository used by the notification handler.
+      // An empty recipient must not turn a completed trash into a failed cleanup job.
+      events.emit.mockImplementation(async (name, ...args) => {
+        if (name === 'AssetTrashAll') {
+          await notifications.onAssetsTrash(args[0] as { assetIds: string[]; userId: string });
+        }
+      });
 
       const {
         result: { id: ownerId },
@@ -1014,6 +1024,7 @@ describe(IntegrityService.name, () => {
         assetIds: [assetId1, assetId2],
         userId: '',
       });
+      expect(notificationMocks.websocket.clientSend).not.toHaveBeenCalled();
 
       expect(storage.unlink).toHaveBeenCalledWith('/path/to/untracked');
 

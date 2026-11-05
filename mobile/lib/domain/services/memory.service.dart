@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 
 /// Accesses Memories; a specialized collection of assets with some novel display mechanism
 class MemoryService {
+  static const laneCardLimit = 16;
   final log = Logger("MemoryService");
 
   final MemoryRepository _repository;
@@ -53,13 +54,24 @@ class MemoryService {
   /// RBAC-projected list is what keeps mobile at parity with web. See issue #997.
   Future<List<Memory>> getMemoryLane(String ownerId) async {
     try {
-      return await _apiRepository.getMemoryLane();
+      return _laneCards(await _apiRepository.getMemoryLane());
     } catch (error, stackTrace) {
       // Offline / server failure: fall back to the owner-scoped local list so the viewer's
       // own memories still render (their Space-shared memories are unavailable offline).
       log.warning("Failed to fetch memories from the server; using the local sync DB", error, stackTrace);
-      return (await _repository.getAll(ownerId)).where(_isOrdinaryMemory).toList();
+      return getCachedMemoryLane(ownerId);
     }
+  }
+
+  /// Read durable owner-scoped cards without waiting for network availability.
+  Future<List<Memory>> getCachedMemoryLane(String ownerId) async => _laneCards(await _repository.getAll(ownerId));
+
+  static List<Memory> _laneCards(Iterable<Memory> memories) {
+    final seen = <String>{};
+    return memories
+        .where((memory) => _isOrdinaryMemory(memory) && memory.assets.isNotEmpty && seen.add(memory.id))
+        .take(laneCardLimit)
+        .toList(growable: false);
   }
 
   /// Every memory for the memories list page.

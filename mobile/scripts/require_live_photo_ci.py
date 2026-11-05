@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Require exact-source automated evidence before a manually requested release.
+
+This read-only gate never substitutes for Samsung acceptance. Only push runs
+qualify: PR runs test a synthetic merge checkout, not the released source SHA.
+"""
+
+import argparse
+import json
+import re
+import subprocess
+
+GATES = {"Live Photo timeline non-regression", "Live Photo native decoded motion"}
+REQUIRED_JOBS = {
+    "build-mobile.yml": GATES
+    | {"Flutter tests and coverage", "Release artifact and provenance checks",
+       "Unsigned universal Android (no device acceptance)"},
+    "test.yml": {
+        "Upstream Rebase Tooling",
+        "Test & Lint Server",
+        "Medium Tests (Server)",
+        "Unit Test CLI",
+        "Unit Test CLI (Windows)",
+        "Lint Web",
+        "Test Web",
+        "Unit Test Mobile",
+        "Unit Test ML",
+        "Unit Test ML Training",
+        "Test i18n",
+        ".github Files Formatting",
+        "End-to-End Lint",
+        "OpenAPI Clients",
+        "SQL Schema Checks",
+        "ShellCheck",
+        "Test Branding",
+        "End-to-End Tests (Server & CLI) (ubuntu-latest)",
+        "End-to-End Tests (Server & CLI) (ubuntu-24.04-arm)",
+        "End-to-End Tests (Web) (ubuntu-latest)",
+    },
+    "static_analysis.yml": {"Run Dart Code Analysis"},
+    "original-noodle-gallery-compatibility.yml": {
+        "API contract and compatibility regressions",
+        "Stock Android 5.8.0 emulator E2E",
+        "Stock Android 5.9.0 emulator E2E",
+        "iOS source and simulator contract checks",
+        "Android durable thumbnail cache regression tests",
+        "FOTO Build 22 offline timeline emulator E2E",
+    },
+}
+
+
+def api(repository: str, path: str) -> dict:
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repository}/{path}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise ValueError("Cannot retrieve required CI evidence; release blocked")
+    return json.loads(result.stdout)
+
+
+def successful_run(repository: str, commit: str, workflow: str) -> dict:
+    runs = api(
+        repository,
+        f"actions/workflows/{workflow}/runs?head_sha={commit}&event=push&per_page=100",
+    )
+    candidates = [
+        run
+        for run in runs["workflow_runs"]
+        if run["head_sha"] == commit and run["event"] == "push"
+    ]
+    if not candidates:
+        raise ValueError(
+            "No exact-source push CI run; PR checks cannot certify release bytes"
+        )
+    # A failed/running newer run must never be hidden by an older green result.
+    run = max(candidates, key=lambda row: row["id"])
+    if run["status"] != "completed" or run["conclusion"] != "success":
+        raise ValueError(f"Latest exact-source {workflow} run is not successful")
+    if run["path"].split("@")[0] != f".github/workflows/{workflow}":
+        raise ValueError("Wrong source workflow")
+    return run
+
+
+def require_jobs(repository: str, run: dict, required: set[str]) -> None:
+    attempt = run["run_attempt"]
+    jobs = []
+    page = 1
+    while True:
+        batch = api(
+            repository,
+            f"actions/runs/{run['id']}/attempts/{attempt}/jobs?per_page=100&page={page}",
+        )["jobs"]
+        jobs.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    for name in required:
+        matches = [job for job in jobs if job["name"] == name]
+        if len(matches) != 1 or matches[0]["conclusion"] != "success":
+            raise ValueError(
+                f"Required check missing, ambiguous or unsuccessful: {name}"
+            )
+
+
+def verify(repository: str, commit: str) -> int:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("Invalid repository")
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("Expected commit must be a full SHA")
+    runs = {}
+    for workflow, required in REQUIRED_JOBS.items():
+        run = successful_run(repository, commit, workflow)
+        # A green workflow may contain skipped critical jobs. Inspect each
+        # required job in the exact attempt; overall success is insufficient.
+        require_jobs(repository, run, required)
+        runs[workflow] = run["id"]
+    return runs["build-mobile.yml"]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--repository", required=True)
+    parser.add_argument("--expected-commit", required=True)
+    args = parser.parse_args()
+    try:
+        run = verify(args.repository, args.expected_commit)
+    except (ValueError, KeyError, TypeError) as error:
+        parser.exit(1, f"FAIL: {error}\n")
+    print(
+        f"PASS exact-source Live Photo CI run {run} and required compatibility jobs; "
+        "physical Samsung acceptance remains mandatory"
+    )
+
+
+if __name__ == "__main__":
+    main()

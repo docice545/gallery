@@ -89,6 +89,13 @@ export class QueueService extends BaseService {
         this.logger.warn(`Failed to reconcile orphaned active jobs on bootstrap: ${error}`);
       }
       this.jobRepository.startWorkers();
+      // PostgreSQL intents survive a crash before Redis enqueue. Replay only
+      // those sealed decisions, independently of optional nightly retention.
+      try {
+        await this.jobRepository.queue({ name: JobName.AssetDeleteCheck, data: { resumeOnly: true } });
+      } catch (error) {
+        this.logger.warn(`Failed to queue committed deletion recovery on bootstrap: ${error}`);
+      }
     } else if (this.worker === ImmichWorker.Api) {
       this.jobRepository.watchWorkers();
     }

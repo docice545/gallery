@@ -105,6 +105,25 @@ void main() {
   var returnDecodedImage = false;
   final remoteRequests = <List<Object?>>[];
   final localRequests = <List<Object?>>[];
+
+  List<Object?> expectPreviewWithOfflineFallback() {
+    expect(remoteRequests, hasLength(2), reason: 'one preview and one independent durable-thumbnail attempt');
+    final preview = remoteRequests.singleWhere((r) => Uri.parse(r[0]! as String).queryParameters['size'] == 'preview');
+    final fallback = remoteRequests.singleWhere(
+      (r) => Uri.parse(r[0]! as String).queryParameters['size'] == 'thumbnail',
+    );
+    final previewUri = Uri.parse(preview[0]! as String);
+    expect(
+      Uri.parse(fallback[0]! as String),
+      previewUri.replace(queryParameters: {...previewUri.queryParameters, 'size': 'thumbnail'}),
+      reason: 'fallback must retain the same asset, server, revision and edit identity',
+    );
+    final axes = fallback.sublist(3, 5).cast<int>();
+    expect(axes, everyElement(greaterThan(0)));
+    expect(axes.reduce((a, b) => a < b ? a : b), lessThanOrEqualTo(250));
+    return preview;
+  }
+
   const remoteRequest = BasicMessageChannel<Object?>(
     'dev.flutter.pigeon.immich_mobile.RemoteImageApi.requestImage',
     RemoteImageApi.pigeonChannelCodec,
@@ -193,6 +212,7 @@ void main() {
     _TileViewport viewport = const _TileViewport(),
     ValueNotifier<_TileViewport>? changingViewport,
     VoidCallback? onTap,
+    Stream<Map<String, int>>? stackCounts,
   }) async {
     await SettingsRepository.instance.write(SettingsKey.imagePreferRemote, asset is RemoteAsset);
     Widget tile(_TileViewport value) => Builder(
@@ -204,7 +224,7 @@ void main() {
             child: GestureDetector(
               key: _tileKey,
               onTap: onTap,
-              child: ThumbnailTile(asset, fit: fit, heroOffset: 7),
+              child: ThumbnailTile(asset, fit: fit, heroOffset: 7, showStackIndicator: stackCounts != null),
             ),
           ),
         ),
@@ -226,6 +246,7 @@ void main() {
       child,
       overrides: [
         assetServiceProvider.overrideWithValue(assetService),
+        if (stackCounts != null) stackCountsProvider.overrideWith((_) => stackCounts),
         thumbnailFaceBoundsProvider.overrideWith((_, _) => faces?.call() ?? Stream.value(const [])),
       ],
     );
@@ -256,6 +277,28 @@ void main() {
     }
   }
 
+  _qualityTestWidgets('persisted stack link: 1 active frame is a normal photo; restore makes 2 again', (tester) async {
+    final counts = StreamController<Map<String, int>>();
+    addTearDown(counts.close);
+    final asset = _remote().copyWith(stackId: 'stack');
+    await mountTile(tester, asset, stackCounts: counts.stream);
+    expect(find.byIcon(Icons.photo_library_outlined), findsNothing, reason: 'unknown is not a stack');
+    counts.add({'stack': 2});
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+    counts.add({'stack': 1});
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Icons.photo_library_outlined), findsNothing);
+    expect(tester.widget<ThumbnailTile>(find.byType(ThumbnailTile)).asset, asset);
+    expect(find.byType(Thumbnail), findsOneWidget, reason: 'the survivor remains a normal photo tile');
+    counts.add({'stack': 2});
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+  });
+
   for (final dimensions in [const Size(4000, 6000), const Size(6000, 4000)]) {
     _qualityTestWidgets(
       'high-DPR $dimensions remote still chooses preview and sends bounded physical decode dimensions',
@@ -268,8 +311,9 @@ void main() {
         _expectPreview(provider);
         _expectAspectCorrectBounded(provider.decodeSize!, asset);
         expect(provider.decodeSize!.shortestSide, greaterThanOrEqualTo(180 * 3));
-        expect(remoteRequests.single[3], provider.decodeSize!.width.ceil());
-        expect(remoteRequests.single[4], provider.decodeSize!.height.ceil());
+        final preview = expectPreviewWithOfflineFallback();
+        expect(preview[3], provider.decodeSize!.width.ceil());
+        expect(preview[4], provider.decodeSize!.height.ceil());
         expect(still(tester).framingImageSize, dimensions);
         expectNoOriginalRequests();
         expect(tester.takeException(), isNull);
@@ -287,8 +331,9 @@ void main() {
     _expectPreview(provider);
     _expectAspectCorrectBounded(provider.decodeSize!, asset);
     expect(provider.decodeSize!.longestSide, 1440);
-    expect(remoteRequests.single[3], lessThanOrEqualTo(1440));
-    expect(remoteRequests.single[4], lessThanOrEqualTo(1440));
+    final preview = expectPreviewWithOfflineFallback();
+    expect(preview[3], lessThanOrEqualTo(1440));
+    expect(preview[4], lessThanOrEqualTo(1440));
     expectNoOriginalRequests();
   });
 
@@ -611,7 +656,19 @@ void main() {
     expect(larger.decodeSize!.shortestSide, greaterThan(denser.decodeSize!.shortestSide));
     _expectAspectCorrectBounded(larger.decodeSize!, _remote());
     expect(tester.state(find.byType(Thumbnail)), same(state));
-    expect(remoteRequests, hasLength(3));
+    expect(remoteRequests, hasLength(5));
+    // Initial cheap thumbnail, then exactly one fallback + preview for each resize.
+    for (final provider in [initial, denser, larger]) {
+      final request = remoteRequests.singleWhere(
+        (r) =>
+            r[0] == provider.url &&
+            r[3] == provider.decodeSize!.width.ceil() &&
+            r[4] == provider.decodeSize!.height.ceil(),
+      );
+      expect(request[2], isFalse);
+    }
+    final fallbacks = remoteRequests.where((r) => r[3] == 250 && r[4] == 375);
+    expect(fallbacks, hasLength(2));
     expectNoOriginalRequests();
     expect(tester.takeException(), isNull);
   });
@@ -625,7 +682,7 @@ void main() {
 
     expect(find.byType(NativeVideoViewer), findsNothing);
     expect(still(tester).imageProvider, provider);
-    expect(remoteRequests, hasLength(1));
+    expectPreviewWithOfflineFallback();
     expectNoOriginalRequests();
     expect(tester.takeException(), isNull);
   });
@@ -668,6 +725,7 @@ void main() {
           ),
           overrides: [
             assetServiceProvider.overrideWithValue(assetService),
+
             thumbnailFaceBoundsProvider.overrideWith((_, _) => Stream.value(const [_topFace])),
           ],
         );
@@ -738,7 +796,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 2));
     expect(find.byType(NativeVideoViewer), findsNothing);
-    expect(remoteRequests, hasLength(1));
+    expectPreviewWithOfflineFallback();
     expectNoOriginalRequests();
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
@@ -768,7 +826,7 @@ void main() {
     await startPreview(tester);
     expect(still(tester).imageProvider, provider);
     expect(tester.state(find.byType(Thumbnail)), same(state));
-    expect(remoteRequests, hasLength(1));
+    expectPreviewWithOfflineFallback();
     expectNoOriginalRequests();
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
@@ -783,7 +841,7 @@ void main() {
     expect(find.byType(TimelineLivePhotoTile), findsNothing);
     expect(find.byType(NativeVideoViewer), findsNothing);
     expect(still(tester).imageProvider, provider);
-    expect(remoteRequests, hasLength(1));
+    expectPreviewWithOfflineFallback();
     expectNoOriginalRequests();
   });
 

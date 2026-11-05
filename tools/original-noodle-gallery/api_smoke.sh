@@ -14,7 +14,14 @@ stage_code() {
     reconnect) echo 80 ;; *) echo 70 ;;
   esac
 }
-trap 'status=$?; code=$(stage_code "$stage"); printf "%s\n%s\n%s\n" "$stage" "$status" "$BASH_COMMAND" > "$workdir/failure.txt"; echo "API smoke failed at stage $stage (line $LINENO): $BASH_COMMAND" >&2; exit "$code"' ERR
+api_smoke_failure() {
+  local failure_status=$1 failure_line=$2 failure_command=$3 failure_code
+  failure_code=$(stage_code "$stage")
+  printf '%s\n%s\n%s\n' "$stage" "$failure_status" "$failure_command" > "$workdir/failure.txt"
+  echo "API smoke failed at stage $stage (line $failure_line): $failure_command" >&2
+  exit "$failure_code"
+}
+trap 'api_smoke_failure "$?" "$LINENO" "$BASH_COMMAND"' ERR
 mark_stage() { stage=$1; printf '%s\n' "$stage" > "$workdir/stage.txt"; }
 mark_stage preflight
 command -v curl jq ffmpeg convert >/dev/null
@@ -31,6 +38,11 @@ curl --fail --silent --show-error "$base/auth/status" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/albums" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/search/explore" "${auth[@]}" >/dev/null
 curl --fail --silent --show-error "$base/trash/empty/preflight" "${auth[@]}" >/dev/null
+# Unchanged Noodle 5.8/5.9 clients perform a major-version admission check
+# before login. The compatibility compose stamps the disposable server with
+# the FOTO Build 22 release (5.7.3); assert the response here so an un-stamped
+# upstream fallback (3.2.0) cannot reach the emulator gate unnoticed.
+curl --fail --silent --show-error "$base/server/version" | jq -e '.major == 5 and .minor == 7 and .patch == 3' >/dev/null
 echo 'API smoke: auth and discovery passed'
 
 mark_stage media_generation

@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/enums.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/services/timeline.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/widgets/asset_viewer/ocr_toggle_button.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/cast.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/current_album.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/ocr.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/setting.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/routes.provider.dart';
@@ -50,12 +55,19 @@ class ViewerKebabMenu extends ConsumerWidget {
       timelineOrigin: timelineOrigin,
     );
 
-    final menuChildren = ActionButtonBuilder.buildViewerKebabMenu(actionContext, context);
+    final menuChildren = [
+      ...ActionButtonBuilder.buildViewerKebabMenu(actionContext, context),
+      if (asset is RemoteAsset &&
+          asset.isImage &&
+          timelineOrigin != TimelineOrigin.trash &&
+          ref.watch(ocrAssetProvider(asset.id)).valueOrNull?.isNotEmpty == true)
+        OcrToggleButton(asset: asset, menuItem: true),
+    ];
 
     return ImmichMenu(
       consumeOutsideTap: true,
       style: MenuStyle(
-        backgroundColor: WidgetStatePropertyAll(context.themeData.scaffoldBackgroundColor),
+        backgroundColor: WidgetStatePropertyAll((originalTheme ?? context.themeData).scaffoldBackgroundColor),
         surfaceTintColor: const WidgetStatePropertyAll(Colors.grey),
         elevation: const WidgetStatePropertyAll(4),
         shape: const WidgetStatePropertyAll(
@@ -77,8 +89,9 @@ class ViewerKebabMenu extends ConsumerWidget {
         ),
       ],
       builder: (context, controller, child) {
-        return IconButton(
-          icon: const Icon(Icons.more_vert_rounded),
+        return FotoIconButton(
+          kind: FotoIconKind.more,
+          label: context.t.more,
           onPressed: () => controller.isOpen ? controller.close() : controller.open(),
         );
       },

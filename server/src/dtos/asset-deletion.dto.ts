@@ -16,6 +16,10 @@ export class PermanentDeletionDto extends createZodDto(
       // Requests above the inline limit are handled by the durable bounded worker.
       ids: z.array(z.uuid()).min(1).max(5000),
       confirmed: z.literal(true),
+      acceptOnly: z
+        .literal(true)
+        .optional()
+        .describe('Commit an irreversible decision and delete files in the background.'),
     })
     .meta({ id: 'PermanentDeletionDto' }),
 ) {}
@@ -43,6 +47,7 @@ export class PermanentDeletionResultDto extends createZodDto(
     .object({
       id: z.uuid(),
       state: z.enum(['complete', 'pending', 'failed', 'blocked']),
+      accepted: z.literal(true).optional().describe('An owner-scoped irreversible PostgreSQL intent is committed.'),
       code: z.string().optional(),
       scope: z.string().optional(),
       batchId: z.string().optional().describe('Durable batch job id when deletion is queued.'),

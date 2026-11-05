@@ -151,7 +151,11 @@ void main() {
     test('Trash ${error.code} retains a durable unknown outcome without assuming server acceptance', () async {
       when(() => api.delete(['asset'], false)).thenThrow(error);
       await expectLater(assets.trash(['asset']), throwsA(same(error)));
-      expect((await remote.get('asset'))!.isTrashed, isTrue);
+      expect(
+        (await remote.get('asset'))!.isTrashed,
+        isFalse,
+        reason: 'Lost response restores the photo, while the durable operation below remains unresolved',
+      );
       expect((await sync.getPendingTrashOperations()).map((s) => s.id), ['asset']);
       // A new repository instance sees the same state; ordinary active sync
       // is insufficient to infer the result of the failed mutation request.
@@ -171,6 +175,28 @@ void main() {
       expect((await remote.get('trashed'))!.deletedAt, deletionDate);
     },
   );
+
+  test('a rejected retry keeps the preceding unknown Trash and its restored presentation', () async {
+    final first = await remote.beginTrashOperation(['asset'], restore: false);
+    await remote.completeTrashOperation(first, success: false);
+    final pending = (await sync.getPendingTrashOperations()).single;
+    final retry = await remote.beginTrashOperation(['asset'], restore: false);
+    await remote.completeTrashOperation(retry, success: false, definiteFailure: true);
+    final current = (await sync.getPendingTrashOperations()).single;
+    final state = jsonDecode(current.retainedValue!) as Map<String, dynamic>;
+    expect(state['operation'], 'trash');
+    expect(state['presentationRolledBack'], isTrue);
+    expect((await remote.get('asset'))!.isTrashed, isFalse);
+    expect(await sync.watchTrashedAssetIds().first, isEmpty);
+    expect(await sync.getRetainedTrashIds('owner'), ['asset']);
+    // Neither the old request nor a GET captured before the retry owns this revision.
+    await remote.completeTrashOperation(first, success: true);
+    await sync.reconcilePendingTrash(pending, isTrashed: true);
+    expect((await remote.get('asset'))!.isTrashed, isFalse);
+    await sync.reconcilePendingTrash(current, isTrashed: true);
+    expect((await remote.get('asset'))!.isTrashed, isTrue);
+    expect(await sync.getPendingTrashOperations(), isEmpty);
+  });
 
   test('late rejected Restore cannot roll back a newer optimistic Trash', () async {
     await ctx.newRemoteAsset(id: 'trashed', ownerId: 'owner', deletedAt: deletionDate);
@@ -347,11 +373,18 @@ void main() {
     expect(await reloaded.getPendingTrashOperations(), isEmpty); // Still protected as in-flight.
     await reloaded.recoverPendingTrashOperations();
     final uncertain = (await reloaded.getPendingTrashOperations()).single;
-    expect((await RemoteAssetRepository(cache).get('asset'))!.isTrashed, isTrue);
-    await reloaded.reconcilePendingTrash(uncertain, isTrashed: false);
     expect((await RemoteAssetRepository(cache).get('asset'))!.isTrashed, isFalse);
-    expect(await reloaded.getPendingTrashOperations(), isEmpty);
-    expect(await reloaded.getRestoreCandidates({'asset': 'owner'}), isEmpty);
+    expect(await reloaded.getRetainedTrashIds('owner'), ['asset']);
+    expect(await reloaded.watchTrashedAssetIds().first, isEmpty);
+    await cache.close();
+    cache = Drift(DatabaseConnection(NativeDatabase(File('${directory.path}/cache.sqlite'))));
+    expect((await RemoteAssetRepository(cache).get('asset'))!.isTrashed, isFalse);
+    final reopened = SyncStreamRepository(cache);
+    expect((await reopened.getPendingTrashOperations()).single.retainedValue, uncertain.retainedValue);
+    await reopened.reconcilePendingTrash(uncertain, isTrashed: false);
+    expect((await RemoteAssetRepository(cache).get('asset'))!.isTrashed, isFalse);
+    expect(await reopened.getPendingTrashOperations(), isEmpty);
+    expect(await reopened.getRestoreCandidates({'asset': 'owner'}), isEmpty);
   });
 
   test('native CMP projection follows Trash/Restore across SQLite restart and delayed sync', () async {
@@ -449,7 +482,7 @@ void main() {
   });
 
   test(
-    'permanent bulk results remove only complete rows; failed remains retryable and blocked stays ordinary Trash',
+    'permanent bulk results retire accepted rows; failed remains durable and blocked stays ordinary Trash',
     () async {
       await ctx.newRemoteAsset(id: 'failed', ownerId: 'owner');
       await ctx.newRemoteAsset(id: 'blocked', ownerId: 'owner');
@@ -464,7 +497,7 @@ void main() {
       final results = await assets.deleteWithResults(['asset', 'failed', 'blocked']);
       expect(results.where((result) => result.complete).map((result) => result.id), ['asset']);
       expect(await remote.get('asset'), isNull);
-      expect((await remote.get('failed'))!.isTrashed, isTrue);
+      expect(await remote.get('failed'), isNull);
       expect((await remote.get('blocked'))!.isTrashed, isTrue);
       expect(jsonDecode((await marker('failed'))!)['permanent'], isTrue);
       expect(jsonDecode((await marker('blocked'))!)['permanent'], isNot(true));

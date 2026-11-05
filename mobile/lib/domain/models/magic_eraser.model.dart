@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 /// A brush stroke in the EXIF-oriented, unedited original image coordinates.
@@ -30,6 +31,28 @@ class MagicEraserStroke {
     'radius': radius,
     'erase': erase,
   };
+
+  /// Closed contours fill their interior in both preview and Big-LaMa's mask.
+  /// Geometry is measured against the upright image's short side, so portrait
+  /// and landscape images use the same closure threshold after zoom/pan.
+  bool isClosedContour(Size imageSize) {
+    if (points.length < 4 || imageSize.isEmpty) {
+      return false;
+    }
+    final short = imageSize.shortestSide;
+    final scaled = [
+      for (final point in points) Offset(point.dx * imageSize.width / short, point.dy * imageSize.height / short),
+    ];
+    if ((scaled.first - scaled.last).distance > math.max(radius * 1.5, 0.015)) {
+      return false;
+    }
+    var twiceArea = 0.0;
+    for (var i = 0; i < scaled.length; i++) {
+      final next = scaled[(i + 1) % scaled.length];
+      twiceArea += scaled[i].dx * next.dy - next.dx * scaled[i].dy;
+    }
+    return twiceArea.abs() > math.max(radius * radius * 8, 0.0008);
+  }
 }
 
 /// Immutable stroke history. Erasure belongs to the mask, never the source image.

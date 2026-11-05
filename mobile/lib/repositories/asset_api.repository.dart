@@ -19,6 +19,7 @@ class AssetApiRepository extends ApiRepository {
   static const _permanentDeletionRequestLimit = 5000;
   static const _permanentDeletionPollInterval = Duration(milliseconds: 250);
   static const _permanentDeletionMaxPolls = 1200;
+  static const _permanentDeletionAcceptanceTimeout = Duration(seconds: 30);
   final ApiService _apiService;
   Future<void> _trashRequestTail = Future<void>.value();
 
@@ -174,6 +175,119 @@ class AssetApiRepository extends ApiRepository {
           ),
         ),
       );
+    }
+    return results;
+  }
+
+  /// Requests durable, irreversible admission without waiting for file I/O.
+  /// Older servers may queue the request but omit `accepted`; that response
+  /// deliberately leaves the operation uncertain rather than hiding Trash.
+  Future<List<PermanentDeletionResult>> acceptPermanentDeletion(List<String> ids) => _serializeTrashRequest(() async {
+    final unique = ids.toSet().toList();
+    if (unique.isEmpty) {
+      return const [];
+    }
+    final List<PermanentDeletionResult> preflight;
+    try {
+      preflight = await _preflightPermanentDeletion(unique).timeout(_permanentDeletionAcceptanceTimeout);
+    } catch (_) {
+      return [for (final id in unique) PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT')];
+    }
+    final authorized = preflight.where((result) => result.state == 'authorized').map((result) => result.id).toSet();
+    final results = [
+      for (final result in preflight)
+        if (!authorized.contains(result.id))
+          PermanentDeletionResult(id: result.id, state: 'blocked', code: result.code, scope: result.scope),
+    ];
+    final requested = unique.where(authorized.contains).toList();
+    for (var start = 0; start < requested.length; start += _permanentDeletionRequestLimit) {
+      final batch = requested.skip(start).take(_permanentDeletionRequestLimit).toSet();
+      try {
+        final response = await _apiService.apiClient
+            .invokeAPI(
+              '/assets/permanent-deletion',
+              'POST',
+              <QueryParam>[],
+              {'ids': batch.toList(), 'confirmed': true, 'acceptOnly': true},
+              <String, String>{},
+              <String, String>{},
+              'application/json',
+            )
+            .timeout(_permanentDeletionAcceptanceTimeout);
+        if (response.statusCode != 200 && response.statusCode != 201) {
+          throw ApiException(response.statusCode, 'Permanent deletion admission was not acknowledged');
+        }
+        final acknowledged = _parseDeletionResults(jsonDecode(utf8.decode(response.bodyBytes)), batch);
+        results.addAll(acknowledged);
+        if (acknowledged.any(
+          (result) => const {'LIBRARY_DELETION_NOT_AUTHORIZED', 'DELETION_BATCH_NOT_AUTHORIZED'}.contains(result.code),
+        )) {
+          results.addAll([
+            for (final id in requested.skip(start + _permanentDeletionRequestLimit))
+              PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT'),
+          ]);
+          break;
+        }
+      } catch (error) {
+        if (isDefiniteTrashRejection(error)) {
+          results.addAll([
+            for (final id in batch) PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_REJECTED'),
+          ]);
+        } else {
+          // A lost response may follow a committed transaction. Query durable
+          // per-ID receipts once; do not wait for physical deletion to finish.
+          List<PermanentDeletionResult> receipts;
+          try {
+            receipts = await _deletionStatuses(batch.toList()).timeout(_permanentDeletionAcceptanceTimeout);
+          } catch (_) {
+            receipts = const [];
+          }
+          final accepted = {
+            for (final receipt in receipts)
+              if (receipt.accepted) receipt.id: receipt,
+          };
+          results.addAll([
+            for (final id in batch)
+              accepted[id] ?? PermanentDeletionResult(id: id, state: 'uncertain', code: 'REQUEST_OUTCOME_UNKNOWN'),
+          ]);
+        }
+        results.addAll([
+          for (final id in requested.skip(start + _permanentDeletionRequestLimit))
+            PermanentDeletionResult(id: id, state: 'blocked', code: 'REQUEST_NOT_SENT'),
+        ]);
+        break;
+      }
+    }
+    final byId = {for (final result in results) result.id: result};
+    return [for (final id in unique) byId[id]!];
+  });
+
+  List<PermanentDeletionResult> _parseDeletionResults(dynamic value, Set<String> ids) {
+    if (value is! List || value.length != ids.length) {
+      throw StateError('Incomplete deletion acknowledgement');
+    }
+    final results = <PermanentDeletionResult>[];
+    for (final item in value) {
+      if (item is! Map<String, dynamic> ||
+          !ids.contains(item['id']) ||
+          !const {'complete', 'pending', 'failed', 'blocked'}.contains(item['state']) ||
+          (item['accepted'] != null && item['accepted'] is! bool) ||
+          (item['accepted'] == true && item['state'] == 'blocked')) {
+        throw StateError('Invalid deletion acknowledgement');
+      }
+      results.add(
+        PermanentDeletionResult(
+          id: item['id'] as String,
+          state: item['state'] as String,
+          serverAccepted: item['accepted'] == true,
+          code: item['code'] as String?,
+          scope: item['scope'] as String?,
+          batchId: item['batchId'] as String?,
+        ),
+      );
+    }
+    if (results.map((result) => result.id).toSet().length != ids.length) {
+      throw StateError('Duplicate deletion acknowledgement');
     }
     return results;
   }
@@ -341,13 +455,18 @@ class AssetApiRepository extends ApiRepository {
   }
 
   Future<List<PermanentDeletionResult>> _deletionStatuses(List<String> ids) async {
+    // Logical and physical deletion events may repeat an asset ID. The server
+    // returns one receipt per requested ID, while receipt validation requires
+    // exactly one result for each distinct asset. Normalize before batching.
+    final uniqueIds = ids.toSet().toList(growable: false);
     final results = <PermanentDeletionResult>[];
-    for (var start = 0; start < ids.length; start += 200) {
+    for (var start = 0; start < uniqueIds.length; start += 200) {
+      final batch = uniqueIds.skip(start).take(200).toSet();
       final response = await _apiService.apiClient.invokeAPI(
         '/assets/deletion-status',
         'POST',
         <QueryParam>[],
-        {'ids': ids.skip(start).take(200).toList()},
+        {'ids': batch.toList()},
         <String, String>{},
         <String, String>{},
         'application/json',
@@ -355,23 +474,17 @@ class AssetApiRepository extends ApiRepository {
       if (response.statusCode != 200) {
         throw ApiException(response.statusCode, 'Deletion statuses unavailable');
       }
-      final values = (jsonDecode(utf8.decode(response.bodyBytes)) as List).cast<Map<String, dynamic>>();
-      results.addAll(
-        values.map(
-          (value) => PermanentDeletionResult(
-            id: value['id'] as String,
-            state: value['state'] as String,
-            code: value['code'] as String?,
-            scope: value['scope'] as String?,
-          ),
-        ),
-      );
+      results.addAll(_parseDeletionResults(jsonDecode(utf8.decode(response.bodyBytes)), batch));
     }
-    if (results.length != ids.toSet().length || results.map((result) => result.id).toSet().length != results.length) {
+    if (results.length != uniqueIds.length || results.map((result) => result.id).toSet().length != results.length) {
       throw StateError('Incomplete deletion statuses');
     }
     return results;
   }
+
+  /// Owner-scoped proof for a logical deletion event, including accepted work
+  /// whose files are still pending. Never infer acceptance from queued state.
+  Future<List<PermanentDeletionResult>> deletionReceipts(List<String> ids) => _deletionStatuses(ids);
 
   Future<Set<String>> completedDeletions(List<String> ids) async {
     final response = await _apiService.apiClient.invokeAPI(
@@ -419,7 +532,7 @@ class AssetApiRepository extends ApiRepository {
     if (value['id'] != id || !const {'complete', 'pending', 'failed', 'blocked'}.contains(value['state'])) {
       throw StateError('Invalid deletion status');
     }
-    return PermanentDeletionResult(id: id, state: value['state'] as String, code: value['code'] as String?);
+    return _parseDeletionResults([value], {id}).single;
   }
 
   Future<void> restoreTrash(List<String> ids) => _serializeTrashRequest(() async {
@@ -485,6 +598,55 @@ class AssetApiRepository extends ApiRepository {
 
     // we need to get the MIME of the thumbnail once that gets added to the API
     return response.originalMimeType.orElse(null);
+  }
+
+  /// Free-space admission uses fresh owner/hash metadata and an actual original
+  /// response, never thumbnail availability or the local backup icon alone.
+  Future<bool> hasVerifiedBackup(LocalAsset local, String ownerId, {bool keepFavorites = true}) async {
+    final id = local.remoteId;
+    if (id == null || local.checksum == null || local.checksum!.isEmpty) {
+      return false;
+    }
+    bool available(AssetResponseDto asset, String expectedId) =>
+        asset.id == expectedId &&
+        asset.ownerId == ownerId &&
+        !asset.isOffline &&
+        !asset.isTrashed &&
+        asset.deletedAt.orElse(null) == null &&
+        asset.checksum.isNotEmpty;
+    Future<bool> originalAvailable(AssetResponseDto asset) async {
+      final response = await _apiService.apiClient.invokeAPI(
+        '/assets/${Uri.encodeComponent(asset.id)}/original',
+        'HEAD',
+        [const QueryParam('edited', 'false')],
+        null,
+        {'Cache-Control': 'no-cache', 'Pragma': 'no-cache'},
+        {},
+        null,
+      );
+      final length = int.tryParse(response.headers['content-length'] ?? '') ?? 0;
+      final expected = asset.exifInfo.orElse(null)?.fileSizeInByte.orElse(null);
+      return response.statusCode == 200 && length > 0 && (expected == null || expected == length);
+    }
+
+    final still = await checkNull(_api.getAssetInfo(id));
+    if (!available(still, id) || still.checksum != local.checksum || (keepFavorites && still.isFavorite)) {
+      return false;
+    }
+    if (!await originalAvailable(still)) {
+      return false;
+    }
+    final videoId = still.livePhotoVideoId.orElse(null);
+    if (local.isMotionPhoto && videoId == null) {
+      return false; // A backed-up still alone cannot authorize removing a Live Photo.
+    }
+    if (videoId != null) {
+      final video = await checkNull(_api.getAssetInfo(videoId));
+      if (!available(video, videoId) || video.type != AssetTypeEnum.VIDEO || !await originalAvailable(video)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<void> updateDescription(String assetId, String description) {

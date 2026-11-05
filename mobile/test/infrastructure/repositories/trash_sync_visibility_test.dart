@@ -13,6 +13,7 @@ import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/domain/models/timeline_temporal_scope.model.dart';
 import 'package:immich_mobile/domain/services/timeline.service.dart';
+import 'package:immich_mobile/infrastructure/repositories/backup.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_album.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/remote_asset.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
@@ -137,6 +138,54 @@ void main() {
   }
 
   for (final v2 in [false, true]) {
+    for (final accepted in [false, true]) {
+      test(
+        'lost Trash response restores presentation but retains reconciliation/backup fence (v2=$v2, accepted=$accepted)',
+        () async {
+          await stream(payload(), v2: v2);
+          final remote = RemoteAssetRepository(ctx.db);
+          final snapshots = await remote.beginTrashOperation(['still'], restore: false);
+          await sync.completeTrashOperation(snapshots, success: false);
+          final pending = (await sync.getPendingTrashOperations()).single;
+          expect(
+            (await remote.get('still'))!.isTrashed,
+            isFalse,
+            reason: 'A network error must return the photo without claiming a successful deletion',
+          );
+          expect(await sync.watchTrashedAssetIds().first, isEmpty);
+          expect(await sync.getRetainedTrashIds('owner'), ['still'], reason: 'Unknown outcome still blocks re-upload');
+          expect(await sync.getRestoreCandidates({'still': 'owner'}), isEmpty);
+          // Delayed ordinary sync and a repository reconstruction cannot turn
+          // either stale active or stale Trash payloads into an acknowledgement.
+          for (final date in [null, deletedAt]) {
+            await stream(payload(trashDate: date), v2: v2);
+            expect((await remote.get('still'))!.isTrashed, isFalse);
+            expect(await SyncStreamRepository(ctx.db).watchTrashedAssetIds().first, isEmpty);
+            expect((await sync.getPendingTrashOperations()).single.retainedValue, pending.retainedValue);
+            expect((await timeline.main(['owner'], 'owner', GroupAssetsBy.day).assetSource(0, 100)).map((a) => a.id), [
+              'still',
+            ]);
+          }
+          await ctx.newLocalAsset(id: 'device-original', checksum: 'still-checksum');
+          await ctx.newLocalAlbum(id: 'camera', backupSelection: BackupSelection.selected);
+          await ctx.newLocalAlbumAsset(albumId: 'camera', assetId: 'device-original');
+          await ctx.db.remoteAssetEntity.deleteWhere((row) => row.id.equals('still'));
+          expect(
+            await BackupRepository(ctx.db).getCandidates('owner'),
+            isEmpty,
+            reason: 'Even a sync-reset gap must not re-upload an unknown Trash outcome',
+          );
+          expect((await BackupRepository(ctx.db).getCandidates('other')).map((a) => a.id), ['device-original']);
+          await stream(payload(), v2: v2);
+          await sync.reconcilePendingTrash(pending, isTrashed: accepted);
+          expect((await remote.get('still'))!.isTrashed, accepted);
+          expect(await sync.getPendingTrashOperations(), isEmpty);
+          expect(await sync.watchTrashedAssetIds().first, accepted ? {'still'} : <String>{});
+          expect(await sync.getRetainedTrashIds('owner'), accepted ? ['still'] : <String>[]);
+        },
+      );
+    }
+
     test('offline index timestamp is not user Trash (v2=$v2)', () async {
       final json = payload(trashDate: deletedAt)..['isTrashed'] = false;
       await stream(json, v2: v2);

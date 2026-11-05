@@ -71,6 +71,10 @@ class RemoteAsset extends BaseAsset {
   @override
   bool get isEditable => isImage && !isMotionPhoto && !isAnimatedImage;
 
+  /// A separate raster copy may edit a Live Photo's still. Keep [isEditable]
+  /// stricter for server-side nondestructive edits of the original motion pair.
+  bool get isStillCopyEditable => isImage && !isAnimatedImage && !isTrashed && !isIndexTombstone;
+
   bool get isTrashed => !isIndexTombstone && deletedAt != null;
 
   bool get isStacked => stackId != null;

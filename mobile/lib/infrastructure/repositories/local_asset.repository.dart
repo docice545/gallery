@@ -15,8 +15,9 @@ import 'package:immich_mobile/infrastructure/repositories/local_asset.repository
 class RemovalCandidatesResult {
   final List<LocalAsset> assets;
   final int totalBytes;
+  final Map<String, int> bytesByAssetId;
 
-  const RemovalCandidatesResult({required this.assets, required this.totalBytes});
+  const RemovalCandidatesResult({required this.assets, required this.totalBytes, this.bytesByAssetId = const {}});
 }
 
 @DriftAccessor()
@@ -84,6 +85,17 @@ class LocalAssetRepository extends DatabaseAccessor<Drift> with $LocalAssetRepos
         batch.deleteWhere(_db.localAssetEntity, (e) => e.id.equals(id));
       }
     });
+  }
+
+  Future<Set<String>> getAlbumIdsForAssets(List<String> ids) async {
+    if (ids.isEmpty) {
+      return const {};
+    }
+    final links = _db.localAlbumAssetEntity;
+    final query = _db.selectOnly(links, distinct: true)
+      ..addColumns([links.albumId])
+      ..where(links.assetId.isIn(ids));
+    return (await query.get()).map((row) => row.read(links.albumId)!).toSet();
   }
 
   Future<LocalAsset?> getById(String id) {
@@ -182,7 +194,8 @@ class LocalAssetRepository extends DatabaseAccessor<Drift> with $LocalAssetRepos
     Expression<bool> whereClause =
         _db.localAssetEntity.createdAt.isSmallerOrEqualValue(cutoffDate) &
         _db.remoteAssetEntity.ownerId.equals(userId) &
-        _db.remoteAssetEntity.deletedAt.isNull();
+        _db.remoteAssetEntity.deletedAt.isNull() &
+        _db.remoteAssetEntity.isIndexTombstone.equals(false);
 
     // Exclude assets that are in iOS shared albums
     whereClause = whereClause & _db.localAssetEntity.id.isNotInQuery(iosSharedAlbumAssets);
@@ -210,13 +223,20 @@ class LocalAssetRepository extends DatabaseAccessor<Drift> with $LocalAssetRepos
     query.where(whereClause);
 
     final rows = await query.get();
-    final assets = rows.map((row) => row.readTable(_db.localAssetEntity).toDto()).toList();
-    final totalBytes = rows.fold<int>(0, (sum, row) {
-      final fileSize = row.readTableOrNull(_db.remoteExifEntity)?.fileSize;
-      return sum + (fileSize ?? 0);
-    });
+    final assets = <String, LocalAsset>{};
+    final bytes = <String, int>{};
+    for (final row in rows) {
+      final local = row.readTable(_db.localAssetEntity);
+      final remote = row.readTable(_db.remoteAssetEntity);
+      assets.putIfAbsent(local.id, () => local.toDto(remoteId: remote.id));
+      bytes.putIfAbsent(local.id, () => row.readTableOrNull(_db.remoteExifEntity)?.fileSize ?? 0);
+    }
 
-    return RemovalCandidatesResult(assets: assets, totalBytes: totalBytes);
+    return RemovalCandidatesResult(
+      assets: assets.values.toList(),
+      totalBytes: bytes.values.fold(0, (sum, value) => sum + value),
+      bytesByAssetId: bytes,
+    );
   }
 
   Future<void> reconcileHashesFromCloudId() async {

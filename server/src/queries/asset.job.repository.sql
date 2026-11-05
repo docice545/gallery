@@ -304,6 +304,7 @@ from
   left join "asset_video" on "asset_video"."assetId" = "asset"."id"
 where
   "asset"."id" = $4
+  and "asset"."status" != 'deleted'
 
 -- AssetJobRepository.getForMetadataExtraction
 select
@@ -325,6 +326,14 @@ select
   "asset"."height",
   "asset"."isEdited",
   "asset"."duplicateId",
+  (
+    select
+      "updateId"
+    from
+      "asset_exif"
+    where
+      "assetId" = "asset"."id"
+  ) as "exifUpdateId",
   (
     select
       coalesce(json_agg(agg), '[]')
@@ -363,6 +372,7 @@ from
   inner join "user" on "user"."id" = "asset"."ownerId"
 where
   "asset"."id" = $3
+  and "asset"."status" != 'deleted'
 
 -- AssetJobRepository.getLockedPropertiesForMetadataExtraction
 select
@@ -740,6 +750,7 @@ from
   left join "asset_audio" on "asset_audio"."assetId" = "asset"."id"
 where
   "asset"."id" = $1
+  and "asset"."status" != 'deleted'
   and "asset"."type" = 'VIDEO'
 
 -- AssetJobRepository.streamForMetadataExtraction

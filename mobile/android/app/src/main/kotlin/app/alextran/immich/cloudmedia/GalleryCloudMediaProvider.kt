@@ -77,6 +77,7 @@ class GalleryCloudMediaProvider : CloudMediaProvider() {
   }
 
   override fun onQueryMedia(extras: Bundle): Cursor {
+    CloudSqliteReaders.pickerQueries.incrementAndGet()
     val result = MatrixCursor(columns)
     val session = catalog.session() ?: return result.also { attachExtras(it, "disabled", extras) }
     val (collection, generation) = catalog.collection(session)
@@ -108,6 +109,7 @@ class GalleryCloudMediaProvider : CloudMediaProvider() {
           if (item.favorite) 1 else 0, item.width, item.height, item.orientation))
       }
     }
+    CloudSqliteReaders.pickerRows.addAndGet(result.count.toLong())
     attachExtras(result, collection, extras, if (read > limit) "$collection:${offset + limit}" else null)
     return result
   }
@@ -129,8 +131,8 @@ class GalleryCloudMediaProvider : CloudMediaProvider() {
     } ?: 0
     var read = 0
     val mime = CloudMime.condition(extras.getStringArray(Intent.EXTRA_MIME_TYPES))
-    catalog.albums(session, mime.first, mime.second) { cursor ->
-      if (cursor.moveToPosition(offset)) do {
+    catalog.albums(session, mime.first, mime.second, limit + 1, offset) { cursor ->
+      if (cursor.moveToFirst()) do {
         if (read >= limit) { read++; break }
         result.addRow(arrayOf(id(session, cursor.getString(0)), cursor.getString(1), cursor.getLong(2),
           id(session, cursor.getString(3)), cursor.getLong(4)))

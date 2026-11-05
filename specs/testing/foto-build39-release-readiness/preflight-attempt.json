@@ -1,0 +1,43 @@
+{
+  "checked_at_utc": "2026-11-05T19:25:27.112293+00:00",
+  "scope": "Build 39 release preflight only",
+  "head": "fc1126dd4a283d7ab803c237d45914b3d60b5568",
+  "branch": "codex/foto-build38-unified-16",
+  "remote_refs": [
+    "fc1126dd4a283d7ab803c237d45914b3d60b5568\trefs/heads/codex/foto-build38-unified-16"
+  ],
+  "cloud_access": {
+    "hp_path_mounted": false,
+    "ssh_config_present": false,
+    "ssh_agent_configured": false,
+    "tailscale_available": false,
+    "vpn_configured": false,
+    "automatic_tailscale_access": false,
+    "tcp_access_configured": false,
+    "adb_device_list": [
+      "List of devices attached",
+      ""
+    ],
+    "adb_exit_code": 0
+  },
+  "hp_local_sha_in_cloud_object_store": false,
+  "hp_local_sha_existence": "CONFIRMED_BY_USER; not negated by Cloud object absence",
+  "original_staged_changes_preserved": true,
+  "unstaged_tracked_changes": [],
+  "actual_hp_execution": false,
+  "hp_result_files_collected": [],
+  "worktree_created_on_hp": false,
+  "lens_one_tap": "NOT_IMPLEMENTED",
+  "application_changes_this_preflight": false,
+  "build_sign_install_merge_reset_deploy_performed": false,
+  "hotfix_parents": [
+    "d716c753477ca1875593ad622d25f153b0aaa1cd"
+  ],
+  "confirmed_ancestor_commits": [
+    "06af1905e",
+    "7685d6dfb",
+    "1e070783c",
+    "010a7a667",
+    "1224dde49"
+  ]
+}

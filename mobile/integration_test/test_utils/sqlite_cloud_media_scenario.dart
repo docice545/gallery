@@ -1,0 +1,144 @@
+// Synthetic debug account only. The host helper operates actual Shizuku and
+// Android Photo Picker UI; no provider/query/permission mocks are installed.
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:easy_localization/easy_localization.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:immich_mobile/data/db/main/database.dart';
+import 'package:immich_mobile/data/db/sqlite_one_tap_recovery.dart';
+import 'package:immich_mobile/data/db/sqlite_recovery_platform.dart';
+import 'package:immich_mobile/domain/models/store.model.dart';
+import 'package:immich_mobile/domain/services/background_worker.service.dart';
+import 'package:immich_mobile/domain/services/store.service.dart';
+import 'package:immich_mobile/infrastructure/repositories/cloud_media.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/settings.repository.dart';
+import 'package:immich_mobile/platform/background_worker_lock_api.g.dart';
+import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.dart';
+import 'package:integration_test/integration_test.dart';
+import 'package:path_provider/path_provider.dart';
+
+import '../../test/data/db/fixtures/recovery_http_server.dart';
+import 'open_foto.dart';
+
+void cloudMediaScenario() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets('restored generation survives real Shizuku, native picker reads and process restart', (tester) async {
+    await BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock();
+    final directory = await getApplicationDocumentsDirectory();
+    final mode = (await File('${directory.path}/cloud24-mode').readAsString()).trim();
+    expect(mode, isIn(['first', 'restart']));
+    final restart = mode == 'restart';
+    final original = File('${directory.path}/immich.sqlite');
+    final marker = jsonDecode(await File('${directory.path}/build23-upgrade.json').readAsString()) as Map;
+    expect(await recoveryFileHashes(original), marker['sourceChecksums']);
+    final selected = await SqliteRecoveryPlatform.selected();
+    expect(selected.path, isNot(original.path));
+    final phase = File('${directory.path}/cloud24-phase-${restart ? 'restart' : 'first'}');
+    final server = (await RecoveryHttpServer.start(port: 8765))
+      ..fullFoto = true
+      ..favorite = restart
+      ..fullDownloadResets = 1; // The same server session already completed its first full download.
+    addTearDown(server.close);
+    await EasyLocalization.ensureInitialized();
+    await openFotoForTest(); // real full integrity startup probe, existing account/router/pool
+    await verifyWorkerKeepsNativeReader();
+    await waitUntil(tester, () async => find.byType(ThumbnailTile).evaluate().isNotEmpty, pumpFrames: true);
+    expect(StoreService.I.get(StoreKey.currentUser).id, 'existing-owner');
+    expect(SettingsRepository.instance.appConfig.backup.enabled, false);
+    expect(StoreService.I.get(StoreKey.manageLocalMediaAndroid), false);
+    // The synthetic server asset needs its normal EXIF size to be picker-eligible.
+    final (connection, updates) = await openSqliteConnectionWithUpdatePool(name: 'immich');
+    final inspect = Drift.sqlite(connection, updates);
+    await inspect.customStatement('INSERT OR REPLACE INTO remote_exif_entity(asset_id,file_size) VALUES (?,?)', [
+      RecoveryHttpServer.photoId,
+      68,
+    ]);
+    // A real metadata change on restart forces a new provider collection. The
+    // system picker must query our reader again rather than reuse its old cache.
+    // The loopback server agrees, including any sync triggered by app resume.
+    await inspect.customStatement('UPDATE remote_asset_entity SET is_favorite=? WHERE id=?', [
+      restart ? 1 : 0,
+      RecoveryHttpServer.photoId,
+    ]);
+    await inspect.close();
+    const cloud = CloudMediaRepository();
+    final before = await cloud.status();
+    expect(before['signedIn'], true);
+    expect(before['sqliteReaderReady'], true);
+    expect((before['sqlite']! as Map)['status'], 'ready');
+    // Native replies must be delivered after releasing the operation flag.
+    // Back-to-back awaited calls are sequential, not competing operations.
+    for (var read = 0; read < 20; read++) {
+      expect((await cloud.status())['sqliteReaderReady'], true);
+    }
+    await phase.writeAsString('healthy', flush: true);
+    await waitUntil(tester, () async => (await cloud.status())['shizukuRunning'] == true);
+    final enabled = await cloud.enable().timeout(const Duration(seconds: 60));
+    expect(enabled['enabled'], true);
+    await waitUntil(tester, () async => (await cloud.status())['admitted'] == true);
+    // Re-activation must be idempotent and may not select/reset a SQLite generation.
+    expect((await cloud.enable())['enabled'], true);
+    expect((await SqliteRecoveryPlatform.selected()).path, selected.path);
+    await phase.writeAsString('settings', flush: true);
+    await cloud.openPickerSettings();
+    await waitUntil(tester, () async => (await cloud.status())['selected'] == true);
+    await phase.writeAsString('picker', flush: true);
+    await waitUntil(tester, () async {
+      final status = await cloud.status();
+      return File('${directory.path}/cloud24-picker-opened-${restart ? 'restart' : 'first'}').existsSync() &&
+          (status['pickerQueries']! as num) > 0 &&
+          (status['pickerRows']! as num) > 0;
+    });
+    await phase.writeAsString('verified', flush: true);
+    await waitUntil(
+      tester,
+      () async => File('${directory.path}/cloud24-ui-returned-${restart ? 'restart' : 'first'}').existsSync(),
+    );
+    final after = await cloud.diagnose();
+    expect((after['sqlite']! as Map)['status'], 'ready');
+    expect(after['enabled'], true);
+    expect(after['selected'], true);
+    expect((await SqliteRecoveryPlatform.selected()).path, selected.path);
+    expect(await recoveryFileHashes(original), marker['sourceChecksums']);
+    expect(server.fullDownloadResets, 1); // no repeated server cursor reset or recreated local DB
+    await File('${directory.path}/cloud24-${restart ? 'restart' : 'first'}-report.json').writeAsString(
+      jsonEncode({
+        'format': 24,
+        'restart': restart,
+        'sameGeneration': true,
+        'sameOriginalChecksums': true,
+        'accountRetained': true,
+        'backupEnabled': false,
+        'sqlite': after['sqlite'],
+        'shizukuRunning': after['shizukuRunning'],
+        'permissionGranted': after['permissionGranted'],
+        'selected': after['selected'],
+        'systemPickerOpened': true,
+        'pickerQueries': after['pickerQueries'],
+        'pickerRows': after['pickerRows'],
+      }),
+      flush: true,
+    );
+    await phase.writeAsString('done', flush: true);
+    await tester.pumpWidget(const SizedBox());
+  }, timeout: const Timeout(Duration(minutes: 8)));
+}
+
+Future<void> waitUntil(WidgetTester tester, Future<bool> Function() condition, {bool pumpFrames = false}) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 90));
+  while (DateTime.now().isBefore(deadline)) {
+    if (await condition()) {
+      return;
+    }
+    // Real settings/permission/picker activities pause Flutter's vsync. Native
+    // platform messages and timers still run; waiting for a frame here would
+    // deadlock the host helper's request/verification/return handshake.
+    if (pumpFrames) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+  }
+  fail('Native/cloud scenario condition did not complete');
+}

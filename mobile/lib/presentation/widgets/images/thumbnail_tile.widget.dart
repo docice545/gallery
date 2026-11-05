@@ -24,6 +24,7 @@ class ThumbnailTile extends ConsumerStatefulWidget {
     this.size = kThumbnailResolution,
     this.remoteSize,
     this.fit = BoxFit.cover,
+    this.fillCell = false,
     this.showStorageIndicator = false,
     this.lockSelection = false,
     this.heroOffset,
@@ -37,6 +38,9 @@ class ThumbnailTile extends ConsumerStatefulWidget {
   /// Physical size to decode for remote thumbnails.
   final Size? remoteSize;
   final BoxFit fit;
+
+  /// Mosaic cells keep image/selection geometry fixed and always fill the cell.
+  final bool fillCell;
   final bool showStorageIndicator;
   final bool lockSelection;
   final int? heroOffset;
@@ -58,25 +62,28 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
   @override
   Widget build(BuildContext context) {
     final asset = widget.asset;
+    final fit = widget.fillCell ? BoxFit.cover : widget.fit;
     // Only synchronized geometry is used. Edited previews have another coordinate
     // system; keep their existing framing until an edit-aware transform exists.
     final remoteId = asset?.remoteId;
     final timelineQuality = FaceAwareThumbnailScope.enabledOf(context);
     final faces =
-        timelineQuality &&
-            asset?.isImage == true &&
-            asset?.isEdited == false &&
-            remoteId != null &&
-            widget.fit == BoxFit.cover
+        timelineQuality && asset?.isImage == true && asset?.isEdited == false && remoteId != null && fit == BoxFit.cover
         ? ref.watch(thumbnailFaceBoundsProvider(remoteId)).value ?? const <Rect>[]
         : const <Rect>[];
     final width = asset?.width;
     final height = asset?.height;
     final framingImageSize =
-        timelineQuality && asset?.isEdited == false && width != null && height != null && width > 0 && height > 0
+        (timelineQuality || widget.fillCell) &&
+            asset?.isEdited == false &&
+            width != null &&
+            height != null &&
+            width > 0 &&
+            height > 0
         ? Size(width.toDouble(), height.toDouble())
         : null;
-    final preserveEdgeContent = asset != null &&
+    final preserveEdgeContent =
+        asset != null &&
         asset.isImage &&
         shouldPreserveEdgeContent(asset.name, width: asset.width, height: asset.height);
     // PhotoKit aspectFill must not pre-crop the source to a square before Flutter
@@ -92,7 +99,7 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
         : context.primaryColor.lighten(amount: 0.75);
 
     final isSelected = ref.watch(
-      multiSelectProvider.select((multiselect) => multiselect.selectedAssets.contains(asset)),
+      multiSelectProvider.select((multiselect) => asset != null && multiselect.contains(asset)),
     );
 
     final bool storageIndicator =
@@ -127,9 +134,12 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
               _showSelectionContainer = false;
             }
           },
-          padding: EdgeInsets.all(isSelected || widget.lockSelection ? 6 : 0),
+          padding: EdgeInsets.all(!widget.fillCell && (isSelected || widget.lockSelection) ? 6 : 0),
           child: TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0.0, end: (isSelected || widget.lockSelection) ? 15.0 : 0.0),
+            tween: Tween<double>(
+              begin: 0.0,
+              end: !widget.fillCell && (isSelected || widget.lockSelection) ? 15.0 : 0.0,
+            ),
             duration: Durations.short4,
             curve: Curves.decelerate,
             builder: (context, value, child) {
@@ -138,66 +148,73 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: Hero(
-                    // This key resets the hero animation when the asset is changed in the asset viewer.
-                    // It doesn't seem like the best solution, and only works to reset the hero, not prime the hero of the new active asset for animation,
-                    // but other solutions have failed thus far.
-                    key: ValueKey(isCurrentAsset),
-                    tag: '${asset?.heroTag}_$heroIndex',
-                    child: timelineQuality
-                        ? LayoutBuilder(
-                            builder: (context, constraints) {
-                              final request = buildTimelineThumbnailRequest(
-                                viewportSize: constraints.biggest,
-                                devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
-                                imageSize: framingImageSize,
-                                faces: faces,
-                                fit: widget.fit,
-                                preserveEdgeContent: preserveEdgeContent,
-                              );
-                              return Thumbnail.fromAsset(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final request = buildTimelineThumbnailRequest(
+                        viewportSize: constraints.biggest,
+                        devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                        imageSize: framingImageSize,
+                        faces: faces,
+                        fit: fit,
+                        preserveEdgeContent: preserveEdgeContent,
+                        allowContain: !widget.fillCell,
+                      );
+                      return Hero(
+                        // This key resets the hero animation when the asset is changed in the asset viewer.
+                        // It doesn't seem like the best solution, and only works to reset the hero, not prime the hero of the new active asset for animation,
+                        // but other solutions have failed thus far.
+                        key: ValueKey(isCurrentAsset),
+                        tag: '${asset?.heroTag}_$heroIndex',
+                        child: timelineQuality || widget.fillCell
+                            ? Thumbnail.fromAsset(
                                 asset: asset,
                                 size: request.decodeSize,
                                 remoteSize: request.decodeSize,
                                 remoteMediaSize: request.remoteMediaSize,
                                 framingImageSize: framingImageSize,
-                                fit: widget.fit,
+                                fit: fit,
+                                fillCell: widget.fillCell,
                                 faces: faces,
-                              );
-                            },
-                          )
-                        : Thumbnail.fromAsset(
-                            asset: asset,
-                            size: decodeSize,
-                            remoteSize: widget.remoteSize,
-                            fit: widget.fit,
-                            faces: faces,
-                          ),
-                    // Placeholderbuilder used to hide indicators on first hero animation, since flightShuttleBuilder isn't called until both source and destination hero exist in widget tree.
-                    placeholderBuilder: (context, heroSize, child) {
-                      if (!_hideIndicators) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          setState(() => _hideIndicators = true);
-                        });
-                      }
-                      return const SizedBox();
-                    },
-                    flightShuttleBuilder: (context, animation, direction, from, to) {
-                      void animationStatusListener(AnimationStatus status) {
-                        if (!mounted) {
-                          return;
-                        }
-                        final heroInFlight = status == AnimationStatus.forward || status == AnimationStatus.reverse;
-                        if (_hideIndicators != heroInFlight) {
-                          setState(() => _hideIndicators = heroInFlight);
-                        }
-                        if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
-                          animation.removeStatusListener(animationStatusListener);
-                        }
-                      }
+                              )
+                            : Thumbnail.fromAsset(
+                                asset: asset,
+                                size: decodeSize,
+                                remoteSize: widget.remoteSize,
+                                fit: fit,
+                                faces: faces,
+                              ),
+                        // Placeholderbuilder used to hide indicators on first hero animation, since flightShuttleBuilder isn't called until both source and destination hero exist in widget tree.
+                        placeholderBuilder: (context, heroSize, child) {
+                          if (!_hideIndicators) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) {
+                                setState(() => _hideIndicators = true);
+                              }
+                            });
+                          }
+                          return const SizedBox();
+                        },
+                        flightShuttleBuilder: (context, animation, direction, from, to) {
+                          void animationStatusListener(AnimationStatus status) {
+                            if (!mounted) {
+                              return;
+                            }
+                            final heroInFlight = status == AnimationStatus.forward || status == AnimationStatus.reverse;
+                            if (_hideIndicators != heroInFlight) {
+                              setState(() => _hideIndicators = heroInFlight);
+                            }
+                            if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+                              animation.removeStatusListener(animationStatusListener);
+                            }
+                          }
 
-                      animation.addStatusListener(animationStatusListener);
-                      return direction == HeroFlightDirection.push ? from.widget : to.widget;
+                          animation.addStatusListener(animationStatusListener);
+                          // The source thumbnail already owns a bounded decode/cache key.
+                          // Reuse that child, never a layout-dependent request at flight size.
+                          final gridHero = (direction == HeroFlightDirection.push ? from.widget : to.widget) as Hero;
+                          return gridHero.child;
+                        },
+                      );
                     },
                   ),
                 ),
@@ -208,6 +225,7 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                       faces: faces,
                       framingImageSize: framingImageSize,
                       requireMatchingFraming: timelineQuality,
+                      fillCell: widget.fillCell,
                     ),
                   ),
                 if (asset != null)
@@ -219,10 +237,19 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          _AssetTypeIcons(asset: asset),
-                          if (widget.showStackIndicator) _StackIndicator(asset: asset),
-                        ],
+                        children: [_AssetTypeIcons(asset: asset)],
+                      ),
+                    ),
+                  ),
+                if (asset != null && widget.showStackIndicator)
+                  AnimatedOpacity(
+                    opacity: _hideIndicators ? 0.0 : 1.0,
+                    duration: Durations.short4,
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: Padding(
+                        padding: EdgeInsets.only(bottom: asset.isFavorite ? 28.0 : 0.0),
+                        child: _StackIndicator(asset: asset),
                       ),
                     ),
                   ),
@@ -272,13 +299,29 @@ class _ThumbnailTileState extends ConsumerState<ThumbnailTile> {
             ),
           ),
         ),
+        if (widget.fillCell)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: AnimatedOpacity(
+                opacity: isSelected || widget.lockSelection ? 1 : 0,
+                duration: Durations.short4,
+                child: ColoredBox(color: context.primaryColor.withValues(alpha: 0.25)),
+              ),
+            ),
+          ),
         TweenAnimationBuilder<double>(
           tween: Tween<double>(begin: 0.0, end: (isSelected || widget.lockSelection) ? 1.0 : 0.0),
           duration: Durations.short4,
           curve: Curves.decelerate,
           builder: (context, value, child) {
             return Padding(
-              padding: EdgeInsets.all((isSelected || widget.lockSelection) ? value * 3.0 : 3.0),
+              padding: EdgeInsets.all(
+                widget.fillCell
+                    ? 8
+                    : (isSelected || widget.lockSelection)
+                    ? value * 3.0
+                    : 3.0,
+              ),
               child: Align(
                 alignment: Alignment.topLeft,
                 child: Opacity(
@@ -325,24 +368,30 @@ class _VideoIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      spacing: 3,
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.end,
-      // CrossAxisAlignment.start looks more centered vertically than CrossAxisAlignment.center
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          duration.format(),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            shadows: [Shadow(blurRadius: 5.0, color: Color.fromRGBO(0, 0, 0, 0.6))],
+    // A bounded portrait tail (or enlarged system text) can be narrower than
+    // the duration badge. Keep the full duration without overflow or cropping.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.topRight,
+      child: Row(
+        spacing: 3,
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
+        // CrossAxisAlignment.start looks more centered vertically than CrossAxisAlignment.center
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            duration.format(),
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              shadows: [Shadow(blurRadius: 5.0, color: Color.fromRGBO(0, 0, 0, 0.6))],
+            ),
           ),
-        ),
-        const _TileOverlayIcon(Icons.play_circle_outline_rounded),
-      ],
+          const _TileOverlayIcon(Icons.play_circle_outline_rounded),
+        ],
+      ),
     );
   }
 }
@@ -403,21 +452,26 @@ class _StackIndicator extends ConsumerWidget {
 
     final stackId = (asset as RemoteAsset).stackId!;
     final count = ref.watch(stackCountsProvider.select((counts) => counts.value?[stackId]));
+    // A retained membership link is restoration history, not a visible stack.
+    // Unknown counts must not flash a stack container while the stream loads.
+    if (count == null || count < 2) {
+      return const SizedBox.shrink();
+    }
+
     return Padding(
-      padding: const EdgeInsets.only(right: 10.0, top: 6.0),
+      padding: const EdgeInsets.only(left: 8.0, bottom: 8.0),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _TileOverlayIcon(Icons.burst_mode_rounded),
-          if (count != null)
-            Text(
-              ' $count',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                shadows: [Shadow(blurRadius: 5, color: Colors.black)],
-              ),
+          const _TileOverlayIcon(Icons.photo_library_outlined),
+          Text(
+            ' $count',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              shadows: [Shadow(blurRadius: 5, color: Colors.black)],
             ),
+          ),
         ],
       ),
     );

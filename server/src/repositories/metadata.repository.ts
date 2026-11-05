@@ -121,11 +121,12 @@ export class MetadataRepository {
     await this.exiftool.end();
   }
 
-  readTags(path: string): Promise<ImmichTags> {
+  readTags(path: string, { throwOnError = false }: { throwOnError?: boolean } = {}): Promise<ImmichTags> {
     const options: ReadTaskOptions | undefined = mimeTypes.isVideo(path) ? { readArgs: ['-ee'] } : undefined;
 
     return this.exiftool.read(path, options).catch((error) => {
       this.logger.warn(`Error reading exif data (${path}): ${error}\n${error?.stack}`);
+      if (throwOnError) throw error;
       return {};
     }) as Promise<ImmichTags>;
   }
@@ -143,6 +144,7 @@ export class MetadataRepository {
       await this.exiftool.write(path, tagsToWrite);
     } catch (error) {
       this.logger.warn(`Error writing exif data (${path}): ${error}`);
+      throw error;
     }
   }
 }

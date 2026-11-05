@@ -43,7 +43,10 @@ jobs:
       - name: Build existing server Dockerfile and export image
         env:
           EXPECTED_SHA: ${{ inputs.source_commit || github.sha }}
-          MIGRATION_BASE_SHA: ea51a8acdc6f18ab5917c19b6f3833d740b4e9ba
+          GH_TOKEN: ${{ github.token }}
+          # Owner-supplied Build 35 source baseline; all 175 migration sources
+          # are byte-identical in Build 36. This does not certify the live HP DB.
+          MIGRATION_BASE_SHA: 0c8be542121d415f4d748dda20367044cd200d40
         run: scripts/release/server_build.sh "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
       # The pinned disposable PostgreSQL fixture is public on GHCR. Anonymous
       # pulls from shared runner addresses hit the registry's rate limit.
@@ -117,6 +120,14 @@ jobs:
           else
             python3 scripts/release/server_artifact_smoke.py "$EXPECTED_SHA" "$RUNNER_TEMP/gallery-server-artifact"
           fi
+      - name: Preserve unaccepted artifact and diagnostics on smoke failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gallery-trash-server-unaccepted
+          path: ${{ runner.temp }}/gallery-server-artifact/
+          if-no-files-found: ignore
+          retention-days: 7
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gallery-trash-server-linux-amd64

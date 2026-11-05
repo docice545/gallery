@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:crypto/crypto.dart';
@@ -34,6 +35,7 @@ import 'package:immich_mobile/data/db/main/table/user/auth_user.drift.dart';
 import 'package:immich_mobile/data/db/main/table/user/metadata.drift.dart';
 import 'package:immich_mobile/data/db/main/table/user/partner.drift.dart';
 import 'package:immich_mobile/data/db/main/table/user/user.drift.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/domain/models/album/album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
@@ -43,11 +45,14 @@ import 'package:immich_mobile/domain/models/user.model.dart';
 import 'package:immich_mobile/domain/models/user_metadata.model.dart';
 import 'package:immich_mobile/extensions/string_extensions.dart';
 import 'package:immich_mobile/infrastructure/repositories/space_album.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/infrastructure/repositories/sync_stream.repository.drift.dart';
 import 'package:immich_mobile/infrastructure/utils/exif.converter.dart';
 import 'package:logging/logging.dart';
 import 'package:openapi/api.dart' as api show AlbumUserRole, AssetEditAction, AssetVisibility, UserMetadataKey;
 import 'package:openapi/api.dart' hide AlbumUserRole, AssetEditAction, AssetVisibility, UserMetadataKey;
+import 'package:path/path.dart' as p;
+import 'package:sqlite3/common.dart';
 import 'package:uuid/uuid.dart';
 
 typedef AssetTrashSnapshot = ({
@@ -60,6 +65,9 @@ typedef AssetTrashSnapshot = ({
   String? retainedValue,
 });
 
+typedef SqliteSyncRecoveryCapture =
+    Future<SqliteRecoverySnapshot?> Function({required String debugLabel, required SqliteException error});
+
 @DriftAccessor()
 class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepositoryMixin {
   final Logger _logger = Logger('SyncStreamRepository');
@@ -68,10 +76,27 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   // SyncCompleteV1. Bounded by the links delivered in a single sync pass and cleared on every
   // flush, so it never accumulates across syncs. See updateMemoryAssetsV1.
   final Set<(String memoryId, String assetId)> _deferredMemoryAssets = {};
+  final SqliteSyncRecoveryCapture? recoverySnapshotCapture;
 
-  SyncStreamRepository(super.attachedDatabase);
+  SyncStreamRepository(super.attachedDatabase, {this.recoverySnapshotCapture});
 
   Drift get _db => attachedDatabase;
+
+  // Recovery policy reads durable values directly. Store's asynchronous cache
+  // can briefly contain an older watcher snapshot after a write.
+  Future<bool> needsFreshLibraryDownload() async =>
+      await StoreRepository(_db).tryGet(StoreKey.recoveryFreshStartNeedsSync) == true;
+
+  Future<void> markFreshLibraryDownloadStarted() async {
+    await StoreRepository(_db).upsert(StoreKey.recoveryFreshStartNeedsSync, false);
+  }
+
+  Future<void> markFreshLibraryDownloadReady() async {
+    final store = StoreRepository(_db);
+    if (await store.tryGet(StoreKey.recoveryFreshStartReview) == true) {
+      await store.upsert(StoreKey.recoveryFreshStartLibraryReady, true);
+    }
+  }
 
   Future<void> reset({bool retainTrash = true}) async {
     _logger.fine("SyncResetV1 received. Resetting remote entities");
@@ -398,6 +423,23 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   Map<String, dynamic>? _pendingState(AssetTrashSnapshot? snapshot) =>
       snapshot?.retainedValue == null ? null : jsonDecode(snapshot!.retainedValue!) as Map<String, dynamic>;
 
+  bool _hasPresentationRollback(Map<String, dynamic>? state) =>
+      state?['operation'] == 'trash' && state?['presentationRolledBack'] == true && state?['permanent'] != true;
+
+  DateTime? _projectedTrashDate(AssetTrashSnapshot? snapshot, DateTime? incoming) {
+    final state = _pendingState(snapshot);
+    if (_hasPresentationRollback(state)) {
+      final previous = state!['previousDeletedAt'] as int?;
+      return previous == null ? null : DateTime.fromMillisecondsSinceEpoch(previous, isUtc: true);
+    }
+    return state?['operation'] == 'restore' ? null : incoming ?? snapshot?.deletedAt;
+  }
+
+  bool _projectedIndexState(AssetTrashSnapshot? snapshot, bool incoming) {
+    final state = _pendingState(snapshot);
+    return _hasPresentationRollback(state) ? state!['previousIndexTombstone'] == true : incoming;
+  }
+
   /// Only the foreground cold-start path calls this, before accepting actions.
   /// A request abandoned with the previous engine has an unknown outcome.
   Future<void> recoverPendingTrashOperations() async {
@@ -410,10 +452,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         }
         final state = jsonDecode(row.value!) as Map<String, dynamic>;
         if (state['phase'] == 'inFlight') {
-          state['phase'] = 'uncertain';
-          await (_db.settingsEntity.update()..where((r) => r.key.equals(row.key))).write(
-            SettingsEntityCompanion(value: Value(jsonEncode(state))),
-          );
+          await _resolveTrashOperation(_decodeRetained(row.key, row.value!), null);
         }
       }
     });
@@ -450,54 +489,68 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   Future<void> reconcilePendingTrash(AssetTrashSnapshot snapshot, {required bool isTrashed, bool isOffline = false}) =>
       _resolveTrashOperation(snapshot, isTrashed, restoreIndexState: !isTrashed && isOffline);
 
-  /// Receipt acknowledgements use the same captured revision as Trash/Restore.
-  /// A timeout never proves that a permanent deletion reached the server.
+  /// An owner-scoped receipt is authoritative over a concurrent optimistic
+  /// Restore, but never over another endpoint or asset identity. A timeout is
+  /// not evidence that a permanent deletion reached the server.
   Future<void> resolvePermanentDeletion(
     AssetTrashSnapshot snapshot, {
     required bool accepted,
     bool complete = false,
   }) async {
     await _db.transaction(() async {
-      if (snapshot.scope != await _trashResetPrefix() || snapshot.retainedKey == null) {
+      if (snapshot.scope != await _trashResetPrefix() ||
+          snapshot.retainedKey != '${snapshot.scope}${snapshot.ownerId}/${snapshot.id}') {
         return;
       }
-      final query = _db.settingsEntity.select()
-        ..where((row) => row.key.equals(snapshot.retainedKey!) & row.value.equals(snapshot.retainedValue!));
-      if (await query.getSingleOrNull() == null) {
+      final retained = await (_db.settingsEntity.select()..where((row) => row.key.equals(snapshot.retainedKey!)))
+          .getSingleOrNull();
+      final retainedValue = retained?.value;
+      final current = retainedValue == null ? null : _decodeRetained(snapshot.retainedKey!, retainedValue);
+      final row = await (_db.remoteAssetEntity.select()..where((row) => row.id.equals(snapshot.id))).getSingleOrNull();
+      // UUID alone is insufficient: a response captured before an account,
+      // endpoint or identity change cannot retire the replacement asset.
+      if ((current != null && (current.ownerId != snapshot.ownerId || current.checksum != snapshot.checksum)) ||
+          (row != null && (row.ownerId != snapshot.ownerId || row.checksum != snapshot.checksum))) {
         return;
       }
-      final state = _pendingState(snapshot)!;
+      if (!accepted && current?.retainedValue != snapshot.retainedValue) {
+        return;
+      }
+      final state = {..._pendingState(snapshot)!, ...?_pendingState(current)};
       if (accepted) {
         state['permanent'] = true;
         if (complete) {
           state['permanentComplete'] = true;
         }
-        if (complete) {
+        if (state['permanentComplete'] == true) {
           state.remove('operation');
           state.remove('phase');
         } else {
           state['operation'] = 'permanent';
           state['phase'] = 'uncertain';
         }
-        await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
-          SettingsEntityCompanion(value: Value(jsonEncode(state))),
+        await _db
+            .into(_db.settingsEntity)
+            .insertOnConflictUpdate(
+              SettingsEntityCompanion.insert(key: snapshot.retainedKey!, value: Value(jsonEncode(state))),
+            );
+        // Server acceptance, not physical completion, retires the user-facing
+        // remote row. The retained marker remains the durable sync/backup fence.
+        await _db.remoteAssetEntity.deleteWhere(
+          (row) =>
+              row.id.equals(snapshot.id) &
+              row.ownerId.equals(snapshot.ownerId) &
+              row.checksum.equals(snapshot.checksum),
         );
-        if (complete) {
-          await _db.remoteAssetEntity.deleteWhere((row) => row.id.equals(snapshot.id));
-        }
       } else {
-        // Only a pending operation may resolve a no-intent receipt; completed
+        // Only a pending operation may resolve a no-intent receipt; accepted
         // permanent tombstones are immutable even after a stale response.
         if (state['operation'] != 'permanent' || state['permanent'] == true) {
           return;
         }
-        await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
-          SettingsEntityCompanion(value: Value(jsonEncode(state))),
-        );
-        final rolledBack = _decodeRetained(snapshot.retainedKey!, jsonEncode(state));
         // A current owner-scoped receipt says no intent exists. Restore only
         // the captured pre-request Trash state; no local OS files are recreated.
-        await _resolveTrashOperation(rolledBack, true, rollback: true);
+        await _resolveTrashOperation(snapshot, true, rollback: true);
       }
     });
   }
@@ -524,13 +577,32 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         return;
       }
       final state = _pendingState(snapshot)!;
+      if (state['permanent'] == true) {
+        return;
+      }
       final unresolvedPrevious = rollback && state['previousPending'] == true;
       var indexRollback = false;
       if (trashed == null) {
         state['phase'] = 'uncertain';
+        if (state['operation'] == 'trash') {
+          // Restore only presentation. Keep the revision, operation and backup
+          // fence: a lost response proves neither success nor server rollback.
+          state['presentationRolledBack'] = true;
+          final previous = state['previousDeletedAt'] as int?;
+          if (row != null) {
+            await (_db.remoteAssetEntity.update()..where((r) => r.id.equals(snapshot.id))).write(
+              RemoteAssetEntityCompanion(
+                deletedAt: Value(previous == null ? null : DateTime.fromMillisecondsSinceEpoch(previous, isUtc: true)),
+                isIndexTombstone: Value(state['previousIndexTombstone'] == true),
+              ),
+            );
+          }
+        }
       } else {
+        state.remove('presentationRolledBack');
         state.remove('operation');
         state.remove('phase');
+        final previousPendingState = state.remove('previousPendingState');
         final previous = state.remove('previousDeletedAt');
         final previousTrashDate = state.remove('previousTrashDate');
         final previousIndexState = state.remove('previousIndexTombstone') == true;
@@ -554,9 +626,20 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         // A definite rejection rolls back this action, but cannot prove the
         // outcome of the preceding optimistic operation it was based on.
         if (unresolvedPrevious) {
-          state['operation'] = trashed ? 'trash' : 'restore';
+          if (previousPendingState is Map<String, dynamic>) {
+            // A rejected retry must retain the preceding unknown operation,
+            // not infer its intent from the now-restored visible row.
+            final revision = state['revision'];
+            state
+              ..clear()
+              ..addAll(previousPendingState);
+            state['revision'] = revision;
+          } else {
+            // Compatibility with journals written before full retry snapshots.
+            state['operation'] = trashed ? 'trash' : 'restore';
+            state['deletedAt'] = previousTrashDate ?? state['deletedAt'];
+          }
           state['phase'] = 'uncertain';
-          state['deletedAt'] = previousTrashDate ?? state['deletedAt'];
         }
       }
       if ((trashed == false || indexRollback) && !unresolvedPrevious) {
@@ -614,7 +697,11 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
           UNION
           SELECT json_extract(value, '\$.id') AS id FROM settings
           WHERE key LIKE ? AND CASE WHEN json_valid(value)
-            THEN COALESCE(json_extract(value, '\$.operation'), 'trash') != 'restore'
+            THEN CASE WHEN json_extract(value, '\$.operation') = 'trash'
+              AND json_extract(value, '\$.presentationRolledBack') = 1
+              AND COALESCE(json_extract(value, '\$.permanent'), 0) != 1
+              THEN json_extract(value, '\$.previousDeletedAt') IS NOT NULL
+              ELSE COALESCE(json_extract(value, '\$.operation'), 'trash') != 'restore' END
             ELSE 0 END
           ''',
           variables: [Variable.withString('$prefix%')],
@@ -643,9 +730,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
         });
   }
 
-  /// Only called after a successful explicit Restore/Delete API operation.
-  /// Works during reset before the corresponding asset row is re-delivered.
-  Future<void> retainPermanentDeletion(List<String> ids) async {
+  /// Retain a server-proven irreversible decision before consuming a logical
+  /// delete event. Acceptance must not claim that physical cleanup completed.
+  Future<void> retainPermanentDeletion(List<String> ids, {bool complete = true}) async {
     final snapshots = await updateRetainedTrash(
       ids,
       DateTime.now(),
@@ -655,9 +742,14 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     for (final snapshot in snapshots) {
       final state = jsonDecode(snapshot.retainedValue!) as Map<String, dynamic>;
       state['permanent'] = true;
-      state['permanentComplete'] = true;
-      state.remove('operation');
-      state.remove('phase');
+      state['permanentComplete'] = complete || state['permanentComplete'] == true;
+      if (state['permanentComplete'] == true) {
+        state.remove('operation');
+        state.remove('phase');
+      } else {
+        state['operation'] = 'permanent';
+        state['phase'] = 'uncertain';
+      }
       await (_db.settingsEntity.update()..where((row) => row.key.equals(snapshot.retainedKey!))).write(
         SettingsEntityCompanion(value: Value(jsonEncode(state))),
       );
@@ -719,7 +811,8 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       if (wanted.contains(state.id)) {
         identities[state.id] = (ownerId: state.ownerId, checksum: state.checksum);
         deletionDates[state.id] = state.deletedAt;
-        previousDates[state.id] = _pendingState(state)?['operation'] == 'restore' ? null : state.deletedAt;
+        previousDates[state.id] = _projectedTrashDate(state, null);
+        previousIndexStates[state.id] = _projectedIndexState(state, false);
         if (_pendingState(state)?['operation'] != null) {
           pendingIds.add(state.id);
         }
@@ -755,7 +848,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       for (final entry in identities.entries) {
         final key = '$prefix${entry.value.ownerId}/${entry.key}';
         final previous = previousValues[key];
-        if (previous?['permanent'] == true && operation == 'restore') {
+        if ((previous?['permanent'] == true || previous?['operation'] == 'permanent') && operation == 'restore') {
           throw StateError('Permanent deletion cannot be restored');
         }
         final value = jsonEncode({
@@ -779,6 +872,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
             if (pendingIds.contains(entry.key)) ...{
               'previousPending': true,
               'previousTrashDate': deletionDates[entry.key]?.millisecondsSinceEpoch,
+              'previousPendingState': previous,
             },
           },
         });
@@ -798,15 +892,29 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       await _db.transaction(() async {
         final assets = data.toList();
         final retained = await _retainedTrash({for (final asset in assets) asset.id: asset.ownerId});
+        final checksums = {for (final asset in assets) asset.id: asset.checksum};
+        if (retained.isNotEmpty) {
+          retained.removeWhere((id, snapshot) => snapshot.checksum != checksums[id]);
+        }
 
         await _db.batch((batch) {
           for (final asset in assets) {
-            if (_pendingState(retained[asset.id])?['permanentComplete'] == true) {
+            if (_pendingState(retained[asset.id])?['permanent'] == true) {
+              // Also retire pre-upgrade pending rows; never reinsert accepted
+              // IDs from stale active/Trash payloads while cleanup is running.
+              batch.deleteWhere(
+                _db.remoteAssetEntity,
+                (row) =>
+                    row.id.equals(asset.id) & row.ownerId.equals(asset.ownerId) & row.checksum.equals(asset.checksum),
+              );
               continue;
             }
             final companion = RemoteAssetEntityCompanion(
               isIndexTombstone: Value(
-                asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+                _projectedIndexState(
+                  retained[asset.id],
+                  asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+                ),
               ),
               name: Value(asset.originalFileName),
               type: Value(asset.type.toAssetType()),
@@ -819,11 +927,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               ownerId: Value(asset.ownerId),
               localDateTime: Value(asset.localDateTime),
               thumbHash: Value(asset.thumbhash),
-              deletedAt: Value(
-                _pendingState(retained[asset.id])?['operation'] == 'restore'
-                    ? null
-                    : asset.deletedAt ?? retained[asset.id]?.deletedAt,
-              ),
+              deletedAt: Value(_projectedTrashDate(retained[asset.id], asset.deletedAt)),
               visibility: Value(asset.visibility.toAssetVisibility()),
               livePhotoVideoId: Value(asset.livePhotoVideoId),
               stackId: Value(asset.stackId),
@@ -858,17 +962,32 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
 
   Future<void> updateAssetsV2(Iterable<SyncAssetV2> data, {String debugLabel = 'user'}) async {
     try {
+      SqliteRecoveryGate.throwIfRequired('updateAssetsV2[$debugLabel]');
       await _db.transaction(() async {
         final assets = data.toList();
         final retained = await _retainedTrash({for (final asset in assets) asset.id: asset.ownerId});
+        final checksums = {for (final asset in assets) asset.id: asset.checksum};
+        if (retained.isNotEmpty) {
+          retained.removeWhere((id, snapshot) => snapshot.checksum != checksums[id]);
+        }
         await _db.batch((batch) {
           for (final asset in assets) {
-            if (_pendingState(retained[asset.id])?['permanentComplete'] == true) {
+            if (_pendingState(retained[asset.id])?['permanent'] == true) {
+              // Also retire pre-upgrade pending rows; never reinsert accepted
+              // IDs from stale active/Trash payloads while cleanup is running.
+              batch.deleteWhere(
+                _db.remoteAssetEntity,
+                (row) =>
+                    row.id.equals(asset.id) & row.ownerId.equals(asset.ownerId) & row.checksum.equals(asset.checksum),
+              );
               continue;
             }
             final companion = RemoteAssetEntityCompanion(
               isIndexTombstone: Value(
-                asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+                _projectedIndexState(
+                  retained[asset.id],
+                  asset.isTrashed.orElse(null) == false && asset.deletedAt != null && retained[asset.id] == null,
+                ),
               ),
               name: Value(asset.originalFileName),
               type: Value(asset.type.toAssetType()),
@@ -881,11 +1000,7 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               ownerId: Value(asset.ownerId),
               localDateTime: Value(asset.localDateTime),
               thumbHash: Value(asset.thumbhash),
-              deletedAt: Value(
-                _pendingState(retained[asset.id])?['operation'] == 'restore'
-                    ? null
-                    : asset.deletedAt ?? retained[asset.id]?.deletedAt,
-              ),
+              deletedAt: Value(_projectedTrashDate(retained[asset.id], asset.deletedAt)),
               visibility: Value(asset.visibility.toAssetVisibility()),
               livePhotoVideoId: Value(asset.livePhotoVideoId),
               stackId: Value(asset.stackId),
@@ -914,7 +1029,44 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetsV2 - $debugLabel', error, stack);
+      if (error is SqliteException && isUnsafeToWrite(error)) {
+        SqliteRecoveryGate.markRequired(check: 'updateAssetsV2[$debugLabel]', resultCode: error.extendedResultCode);
+        await _captureSyncRecoverySnapshot(debugLabel: debugLabel, error: error);
+        throw SqliteDatabaseUnhealthy('updateAssetsV2[$debugLabel]', error.extendedResultCode);
+      }
       rethrow;
+    }
+  }
+
+  /// Export copy-only evidence after a write-path corruption. The transaction
+  /// has already rolled back when this runs, preserving pending operations.
+  /// Recovery never promotes or replaces the primary database.
+  Future<SqliteRecoverySnapshot?> _captureSyncRecoverySnapshot({
+    required String debugLabel,
+    required SqliteException error,
+  }) async {
+    try {
+      if (recoverySnapshotCapture != null) {
+        return await recoverySnapshotCapture!(debugLabel: debugLabel, error: error);
+      }
+      final database = await sqliteDatabaseFile(name: 'immich');
+      final safeLabel = debugLabel.replaceAll(RegExp(r'[^A-Za-z0-9_.-]'), '_');
+      final snapshot = await captureSqliteRecoverySnapshot(
+        database: database,
+        outputDirectory: Directory(p.join(database.parent.path, 'sqlite-recovery')),
+        reason: 'updateAssetsV2[$safeLabel] SQLite result ${error.extendedResultCode}',
+      );
+      _logger.warning('Captured copy-only SQLite recovery snapshot for updateAssetsV2[$safeLabel]');
+      return snapshot;
+    } catch (captureError, captureStack) {
+      // Keep the original SqliteException as the recovery signal. A full disk
+      // or unreadable source must not trigger deletion, reset, or promotion.
+      _logger.warning(
+        'Unable to capture SQLite recovery snapshot after updateAssetsV2 failure',
+        captureError,
+        captureStack,
+      );
+      return null;
     }
   }
 
@@ -936,61 +1088,111 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     );
   }
 
-  Future<void> updateAssetsExifV1(Iterable<SyncAssetExifV1> data, {String debugLabel = 'user'}) async {
+  /// Child sync events can arrive while the server still has an accepted
+  /// deletion row. Only a durable irreversible marker permits dropping them;
+  /// ordinary missing parents must keep their normal error/deferral behavior.
+  Future<Set<String>> _acceptedPermanentAssetIds(Iterable<String> ids) async {
+    final wanted = ids.toSet();
+    if (wanted.isEmpty) {
+      return {};
+    }
+    final prefix = await _trashResetPrefix();
+    final markers = await _db
+        .customSelect(
+          r"""
+      SELECT key, value FROM settings
+      WHERE key LIKE ? AND CASE WHEN json_valid(value)
+        THEN json_extract(value, '$.permanent') = 1
+          AND json_extract(value, '$.id') IN (SELECT value FROM json_each(?))
+        ELSE 0 END
+      """,
+          variables: [Variable.withString('$prefix%'), Variable.withString(jsonEncode(wanted.toList()))],
+          readsFrom: {_db.settingsEntity},
+        )
+        .get();
+    final existing = <String, RemoteAssetEntityData>{};
+    final selected = wanted.toList();
+    for (var start = 0; start < selected.length; start += kDriftMaxChunk) {
+      final chunk = selected.skip(start).take(kDriftMaxChunk);
+      for (final row in await (_db.remoteAssetEntity.select()..where((row) => row.id.isIn(chunk))).get()) {
+        existing[row.id] = row;
+      }
+    }
+    final accepted = <String>{};
+    for (final row in markers) {
+      final marker = _decodeRetained(row.read<String>('key'), row.read<String>('value'));
+      final current = existing[marker.id];
+      if (current == null || (current.ownerId == marker.ownerId && current.checksum == marker.checksum)) {
+        accepted.add(marker.id);
+      }
+    }
+    return accepted;
+  }
+
+  Future<List<T>> _withoutAcceptedPermanentAssets<T>(Iterable<T> data, String Function(T value) id) async {
+    final values = data.toList(growable: false);
+    final accepted = await _acceptedPermanentAssetIds(values.map(id));
+    return values.where((value) => !accepted.contains(id(value))).toList(growable: false);
+  }
+
+  Future<void> updateAssetsExifV1(Iterable<SyncAssetExifV1> input, {String debugLabel = 'user'}) async {
     try {
-      await _db.batch((batch) {
-        for (final exif in data) {
-          final companion = RemoteExifEntityCompanion(
-            city: Value(exif.city),
-            state: Value(exif.state),
-            country: Value(exif.country),
-            dateTimeOriginal: Value(exif.dateTimeOriginal),
-            description: Value(exif.description),
-            exposureTime: Value(exif.exposureTime),
-            fNumber: Value(exif.fNumber),
-            fileSize: Value(exif.fileSizeInByte),
-            focalLength: Value(exif.focalLength),
-            latitude: Value(exif.latitude),
-            longitude: Value(exif.longitude),
-            iso: Value(exif.iso),
-            make: Value(exif.make),
-            model: Value(exif.model),
-            orientation: Value(exif.orientation),
-            timeZone: Value(exif.timeZone),
-            rating: Value(exif.rating),
-            projectionType: Value(exif.projectionType),
-            lens: Value(exif.lensModel),
-            width: Value(exif.exifImageWidth),
-            height: Value(exif.exifImageHeight),
-          );
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          for (final exif in data) {
+            final companion = RemoteExifEntityCompanion(
+              city: Value(exif.city),
+              state: Value(exif.state),
+              country: Value(exif.country),
+              dateTimeOriginal: Value(exif.dateTimeOriginal),
+              description: Value(exif.description),
+              exposureTime: Value(exif.exposureTime),
+              fNumber: Value(exif.fNumber),
+              fileSize: Value(exif.fileSizeInByte),
+              focalLength: Value(exif.focalLength),
+              latitude: Value(exif.latitude),
+              longitude: Value(exif.longitude),
+              iso: Value(exif.iso),
+              make: Value(exif.make),
+              model: Value(exif.model),
+              orientation: Value(exif.orientation),
+              timeZone: Value(exif.timeZone),
+              rating: Value(exif.rating),
+              projectionType: Value(exif.projectionType),
+              lens: Value(exif.lensModel),
+              width: Value(exif.exifImageWidth),
+              height: Value(exif.exifImageHeight),
+            );
 
-          batch.insert(
-            _db.remoteExifEntity,
-            companion.copyWith(assetId: Value(exif.assetId)),
-            onConflict: DoUpdate((_) => companion),
-          );
-        }
-      });
-
-      await _db.batch((batch) {
-        for (final exif in data) {
-          int? width;
-          int? height;
-
-          if (ExifDtoConverter.isOrientationFlipped(exif.orientation)) {
-            width = exif.exifImageHeight;
-            height = exif.exifImageWidth;
-          } else {
-            width = exif.exifImageWidth;
-            height = exif.exifImageHeight;
+            batch.insert(
+              _db.remoteExifEntity,
+              companion.copyWith(assetId: Value(exif.assetId)),
+              onConflict: DoUpdate((_) => companion),
+            );
           }
+        });
 
-          batch.update(
-            _db.remoteAssetEntity,
-            RemoteAssetEntityCompanion(width: Value(width), height: Value(height)),
-            where: (row) => row.id.equals(exif.assetId) & row.width.isNull() & row.height.isNull(),
-          );
-        }
+        await _db.batch((batch) {
+          for (final exif in data) {
+            int? width;
+            int? height;
+
+            if (ExifDtoConverter.isOrientationFlipped(exif.orientation)) {
+              width = exif.exifImageHeight;
+              height = exif.exifImageWidth;
+            } else {
+              width = exif.exifImageWidth;
+              height = exif.exifImageHeight;
+            }
+
+            batch.update(
+              _db.remoteAssetEntity,
+              RemoteAssetEntityCompanion(width: Value(width), height: Value(height)),
+              where: (row) => row.id.equals(exif.assetId) & row.width.isNull() & row.height.isNull(),
+            );
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetsExifV1 - $debugLabel', error, stack);
@@ -1013,28 +1215,31 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAssetsMetadataV1(Iterable<SyncAssetMetadataV1> data) async {
+  Future<void> updateAssetsMetadataV1(Iterable<SyncAssetMetadataV1> input) async {
     try {
-      await _db.batch((batch) {
-        for (final metadata in data) {
-          if (metadata.key == kMobileMetadataKey) {
-            final map = metadata.value as Map<String, Object?>;
-            final companion = RemoteAssetCloudIdEntityCompanion(
-              cloudId: Value(map['iCloudId']?.toString()),
-              createdAt: Value(map['createdAt'] != null ? DateTime.parse(map['createdAt']! as String) : null),
-              adjustmentTime: Value(
-                map['adjustmentTime'] != null ? DateTime.parse(map['adjustmentTime']! as String) : null,
-              ),
-              latitude: Value(map['latitude'] != null ? (double.tryParse(map['latitude']! as String)) : null),
-              longitude: Value(map['longitude'] != null ? (double.tryParse(map['longitude']! as String)) : null),
-            );
-            batch.insert(
-              _db.remoteAssetCloudIdEntity,
-              companion.copyWith(assetId: Value(metadata.assetId)),
-              onConflict: DoUpdate((_) => companion),
-            );
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          for (final metadata in data) {
+            if (metadata.key == kMobileMetadataKey) {
+              final map = metadata.value as Map<String, Object?>;
+              final companion = RemoteAssetCloudIdEntityCompanion(
+                cloudId: Value(map['iCloudId']?.toString()),
+                createdAt: Value(map['createdAt'] != null ? DateTime.parse(map['createdAt']! as String) : null),
+                adjustmentTime: Value(
+                  map['adjustmentTime'] != null ? DateTime.parse(map['adjustmentTime']! as String) : null,
+                ),
+                latitude: Value(map['latitude'] != null ? (double.tryParse(map['latitude']! as String)) : null),
+                longitude: Value(map['longitude'] != null ? (double.tryParse(map['longitude']! as String)) : null),
+              );
+              batch.insert(
+                _db.remoteAssetCloudIdEntity,
+                companion.copyWith(assetId: Value(metadata.assetId)),
+                onConflict: DoUpdate((_) => companion),
+              );
+            }
           }
-        }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetsMetadataV1', error, stack);
@@ -1042,20 +1247,23 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAssetEditsV1(Iterable<SyncAssetEditV1> data, {String debugLabel = 'user'}) async {
+  Future<void> updateAssetEditsV1(Iterable<SyncAssetEditV1> input, {String debugLabel = 'user'}) async {
     try {
-      await _db.batch((batch) {
-        for (final edit in data) {
-          final companion = AssetEditEntityCompanion(
-            id: Value(edit.id),
-            assetId: Value(edit.assetId),
-            action: Value(edit.action.toAssetEditAction()),
-            parameters: Value(edit.parameters as Map<String, Object?>),
-            sequence: Value(edit.sequence),
-          );
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          for (final edit in data) {
+            final companion = AssetEditEntityCompanion(
+              id: Value(edit.id),
+              assetId: Value(edit.assetId),
+              action: Value(edit.action.toAssetEditAction()),
+              parameters: Value(edit.parameters as Map<String, Object?>),
+              sequence: Value(edit.sequence),
+            );
 
-          batch.insert(_db.assetEditEntity, companion, onConflict: DoUpdate((_) => companion));
-        }
+            batch.insert(_db.assetEditEntity, companion, onConflict: DoUpdate((_) => companion));
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetEditsV1 - $debugLabel', error, stack);
@@ -1063,22 +1271,29 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> replaceAssetEditsV1(String assetId, Iterable<SyncAssetEditV1> data, {String debugLabel = 'user'}) async {
+  Future<void> replaceAssetEditsV1(
+    String assetId,
+    Iterable<SyncAssetEditV1> input, {
+    String debugLabel = 'user',
+  }) async {
     try {
-      await _db.batch((batch) {
-        batch.deleteWhere(_db.assetEditEntity, (row) => row.assetId.equals(assetId));
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          batch.deleteWhere(_db.assetEditEntity, (row) => row.assetId.equals(assetId));
 
-        for (final edit in data) {
-          final companion = AssetEditEntityCompanion(
-            id: Value(edit.id),
-            assetId: Value(edit.assetId),
-            action: Value(edit.action.toAssetEditAction()),
-            parameters: Value(edit.parameters as Map<String, Object?>),
-            sequence: Value(edit.sequence),
-          );
+          for (final edit in data) {
+            final companion = AssetEditEntityCompanion(
+              id: Value(edit.id),
+              assetId: Value(edit.assetId),
+              action: Value(edit.action.toAssetEditAction()),
+              parameters: Value(edit.parameters as Map<String, Object?>),
+              sequence: Value(edit.sequence),
+            );
 
-          batch.insert(_db.assetEditEntity, companion);
-        }
+            batch.insert(_db.assetEditEntity, companion);
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: replaceAssetEditsV1 - $debugLabel', error, stack);
@@ -1112,9 +1327,13 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAlbumsV1(Iterable<SyncAlbumV1> data) async {
+  Future<void> updateAlbumsV1(Iterable<SyncAlbumV1> input) async {
     try {
       await _db.transaction(() async {
+        final data = input.toList(growable: false);
+        final retiredThumbnails = await _acceptedPermanentAssetIds(
+          data.map((album) => album.thumbnailAssetId).nonNulls,
+        );
         await _db.batch((batch) {
           for (final album in data) {
             final companion = RemoteAlbumEntityCompanion(
@@ -1122,7 +1341,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
               description: Value(album.description),
               isActivityEnabled: Value(album.isActivityEnabled),
               order: Value(album.order.toAlbumAssetOrder()),
-              thumbnailAssetId: Value(album.thumbnailAssetId),
+              thumbnailAssetId: Value(
+                retiredThumbnails.contains(album.thumbnailAssetId) ? null : album.thumbnailAssetId,
+              ),
               createdAt: Value(album.createdAt),
               updatedAt: Value(album.updatedAt),
             );
@@ -1153,26 +1374,34 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAlbumsV2(Iterable<SyncAlbumV2> data) async {
+  Future<void> updateAlbumsV2(Iterable<SyncAlbumV2> input) async {
     try {
-      await _db.batch((batch) {
-        for (final album in data) {
-          final companion = RemoteAlbumEntityCompanion(
-            name: Value(album.name),
-            description: Value(album.description),
-            isActivityEnabled: Value(album.isActivityEnabled),
-            order: Value(album.order.toAlbumAssetOrder()),
-            thumbnailAssetId: Value(album.thumbnailAssetId),
-            createdAt: Value(album.createdAt),
-            updatedAt: Value(album.updatedAt),
-          );
+      await _db.transaction(() async {
+        final data = input.toList(growable: false);
+        final retiredThumbnails = await _acceptedPermanentAssetIds(
+          data.map((album) => album.thumbnailAssetId).nonNulls,
+        );
+        await _db.batch((batch) {
+          for (final album in data) {
+            final companion = RemoteAlbumEntityCompanion(
+              name: Value(album.name),
+              description: Value(album.description),
+              isActivityEnabled: Value(album.isActivityEnabled),
+              order: Value(album.order.toAlbumAssetOrder()),
+              thumbnailAssetId: Value(
+                retiredThumbnails.contains(album.thumbnailAssetId) ? null : album.thumbnailAssetId,
+              ),
+              createdAt: Value(album.createdAt),
+              updatedAt: Value(album.updatedAt),
+            );
 
-          batch.insert(
-            _db.remoteAlbumEntity,
-            companion.copyWith(id: Value(album.id)),
-            onConflict: DoUpdate((_) => companion),
-          );
-        }
+            batch.insert(
+              _db.remoteAlbumEntity,
+              companion.copyWith(id: Value(album.id)),
+              onConflict: DoUpdate((_) => companion),
+            );
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAlbumsV2', error, stack);
@@ -1231,17 +1460,20 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAlbumToAssetsV1(Iterable<SyncAlbumToAssetV1> data, {String debugLabel = 'user'}) async {
+  Future<void> updateAlbumToAssetsV1(Iterable<SyncAlbumToAssetV1> input, {String debugLabel = 'user'}) async {
     try {
-      await _db.batch((batch) {
-        for (final album in data) {
-          final companion = RemoteAlbumAssetEntityCompanion(
-            albumId: Value(album.albumId),
-            assetId: Value(album.assetId),
-          );
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          for (final album in data) {
+            final companion = RemoteAlbumAssetEntityCompanion(
+              albumId: Value(album.albumId),
+              assetId: Value(album.assetId),
+            );
 
-          batch.insert(_db.remoteAlbumAssetEntity, companion, onConflict: DoNothing());
-        }
+            batch.insert(_db.remoteAlbumAssetEntity, companion, onConflict: DoNothing());
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAlbumToAssetsV1 - $debugLabel', error, stack);
@@ -1862,39 +2094,45 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
   }
 
   Future<Set<(String, String)>> _insertMemoryAssetLinkChunk(List<(String, String)> pending) async {
-    final memoryQuery = _db.memoryEntity.selectOnly()
-      ..addColumns([_db.memoryEntity.id])
-      ..where(_db.memoryEntity.id.isIn(pending.map((link) => link.$1).toSet()));
-    final knownMemories = (await memoryQuery.map((row) => row.read(_db.memoryEntity.id)).get()).nonNulls.toSet();
+    return _db.transaction(() async {
+      final memoryQuery = _db.memoryEntity.selectOnly()
+        ..addColumns([_db.memoryEntity.id])
+        ..where(_db.memoryEntity.id.isIn(pending.map((link) => link.$1).toSet()));
+      final knownMemories = (await memoryQuery.map((row) => row.read(_db.memoryEntity.id)).get()).nonNulls.toSet();
 
-    final assetQuery = _db.remoteAssetEntity.selectOnly()
-      ..addColumns([_db.remoteAssetEntity.id])
-      ..where(_db.remoteAssetEntity.id.isIn(pending.map((link) => link.$2).toSet()));
-    final knownAssets = (await assetQuery.map((row) => row.read(_db.remoteAssetEntity.id)).get()).nonNulls.toSet();
+      final assetQuery = _db.remoteAssetEntity.selectOnly()
+        ..addColumns([_db.remoteAssetEntity.id])
+        ..where(_db.remoteAssetEntity.id.isIn(pending.map((link) => link.$2).toSet()));
+      final knownAssets = (await assetQuery.map((row) => row.read(_db.remoteAssetEntity.id)).get()).nonNulls.toSet();
 
-    final insertable = <(String, String)>[];
-    final deferred = <(String, String)>{};
-    for (final link in pending) {
-      if (knownMemories.contains(link.$1) && knownAssets.contains(link.$2)) {
-        insertable.add(link);
-      } else {
-        deferred.add(link);
-      }
-    }
-
-    if (insertable.isNotEmpty) {
-      await _db.batch((batch) {
-        for (final link in insertable) {
-          batch.insert(
-            _db.memoryAssetEntity,
-            MemoryAssetEntityCompanion(memoryId: Value(link.$1), assetId: Value(link.$2)),
-            onConflict: DoNothing(),
-          );
+      final retired = await _acceptedPermanentAssetIds(pending.map((link) => link.$2));
+      final insertable = <(String, String)>[];
+      final deferred = <(String, String)>{};
+      for (final link in pending) {
+        if (retired.contains(link.$2)) {
+          continue;
         }
-      });
-    }
+        if (knownMemories.contains(link.$1) && knownAssets.contains(link.$2)) {
+          insertable.add(link);
+        } else {
+          deferred.add(link);
+        }
+      }
 
-    return deferred;
+      if (insertable.isNotEmpty) {
+        await _db.batch((batch) {
+          for (final link in insertable) {
+            batch.insert(
+              _db.memoryAssetEntity,
+              MemoryAssetEntityCompanion(memoryId: Value(link.$1), assetId: Value(link.$2)),
+              onConflict: DoNothing(),
+            );
+          }
+        });
+      }
+
+      return deferred;
+    });
   }
 
   Future<void> deleteMemoryAssetsV1(Iterable<SyncMemoryAssetDeleteV1> data) async {
@@ -2036,28 +2274,31 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAssetFacesV1(Iterable<SyncAssetFaceV1> data) async {
+  Future<void> updateAssetFacesV1(Iterable<SyncAssetFaceV1> input) async {
     try {
-      await _db.batch((batch) {
-        for (final assetFace in data) {
-          final companion = AssetFaceEntityCompanion(
-            assetId: Value(assetFace.assetId),
-            personId: Value(assetFace.personId),
-            imageWidth: Value(assetFace.imageWidth),
-            imageHeight: Value(assetFace.imageHeight),
-            boundingBoxX1: Value(assetFace.boundingBoxX1),
-            boundingBoxY1: Value(assetFace.boundingBoxY1),
-            boundingBoxX2: Value(assetFace.boundingBoxX2),
-            boundingBoxY2: Value(assetFace.boundingBoxY2),
-            sourceType: Value(assetFace.sourceType),
-          );
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          for (final assetFace in data) {
+            final companion = AssetFaceEntityCompanion(
+              assetId: Value(assetFace.assetId),
+              personId: Value(assetFace.personId),
+              imageWidth: Value(assetFace.imageWidth),
+              imageHeight: Value(assetFace.imageHeight),
+              boundingBoxX1: Value(assetFace.boundingBoxX1),
+              boundingBoxY1: Value(assetFace.boundingBoxY1),
+              boundingBoxX2: Value(assetFace.boundingBoxX2),
+              boundingBoxY2: Value(assetFace.boundingBoxY2),
+              sourceType: Value(assetFace.sourceType),
+            );
 
-          batch.insert(
-            _db.assetFaceEntity,
-            companion.copyWith(id: Value(assetFace.id)),
-            onConflict: DoUpdate((_) => companion),
-          );
-        }
+            batch.insert(
+              _db.assetFaceEntity,
+              companion.copyWith(id: Value(assetFace.id)),
+              onConflict: DoUpdate((_) => companion),
+            );
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetFacesV1', error, stack);
@@ -2065,30 +2306,33 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAssetFacesV2(Iterable<SyncAssetFaceV2> data) async {
+  Future<void> updateAssetFacesV2(Iterable<SyncAssetFaceV2> input) async {
     try {
-      await _db.batch((batch) {
-        for (final assetFace in data) {
-          final companion = AssetFaceEntityCompanion(
-            assetId: Value(assetFace.assetId),
-            personId: Value(assetFace.personId),
-            imageWidth: Value(assetFace.imageWidth),
-            imageHeight: Value(assetFace.imageHeight),
-            boundingBoxX1: Value(assetFace.boundingBoxX1),
-            boundingBoxY1: Value(assetFace.boundingBoxY1),
-            boundingBoxX2: Value(assetFace.boundingBoxX2),
-            boundingBoxY2: Value(assetFace.boundingBoxY2),
-            sourceType: Value(assetFace.sourceType),
-            deletedAt: Value(assetFace.deletedAt),
-            isVisible: Value(assetFace.isVisible),
-          );
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          for (final assetFace in data) {
+            final companion = AssetFaceEntityCompanion(
+              assetId: Value(assetFace.assetId),
+              personId: Value(assetFace.personId),
+              imageWidth: Value(assetFace.imageWidth),
+              imageHeight: Value(assetFace.imageHeight),
+              boundingBoxX1: Value(assetFace.boundingBoxX1),
+              boundingBoxY1: Value(assetFace.boundingBoxY1),
+              boundingBoxX2: Value(assetFace.boundingBoxX2),
+              boundingBoxY2: Value(assetFace.boundingBoxY2),
+              sourceType: Value(assetFace.sourceType),
+              deletedAt: Value(assetFace.deletedAt),
+              isVisible: Value(assetFace.isVisible),
+            );
 
-          batch.insert(
-            _db.assetFaceEntity,
-            companion.copyWith(id: Value(assetFace.id)),
-            onConflict: DoUpdate((_) => companion),
-          );
-        }
+            batch.insert(
+              _db.assetFaceEntity,
+              companion.copyWith(id: Value(assetFace.id)),
+              onConflict: DoUpdate((_) => companion),
+            );
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetFacesV2', error, stack);
@@ -2109,32 +2353,35 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAssetOcrV1(Iterable<SyncAssetOcrV1> data) async {
+  Future<void> updateAssetOcrV1(Iterable<SyncAssetOcrV1> input) async {
     try {
-      await _db.batch((batch) {
-        for (final assetOcr in data) {
-          final companion = AssetOcrEntityCompanion(
-            assetId: Value(assetOcr.assetId),
-            recognizedText: Value(assetOcr.text),
-            x1: Value(assetOcr.x1),
-            y1: Value(assetOcr.y1),
-            x2: Value(assetOcr.x2),
-            y2: Value(assetOcr.y2),
-            x3: Value(assetOcr.x3),
-            y3: Value(assetOcr.y3),
-            x4: Value(assetOcr.x4),
-            y4: Value(assetOcr.y4),
-            boxScore: Value(assetOcr.boxScore),
-            textScore: Value(assetOcr.textScore),
-            isVisible: Value(assetOcr.isVisible),
-          );
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          for (final assetOcr in data) {
+            final companion = AssetOcrEntityCompanion(
+              assetId: Value(assetOcr.assetId),
+              recognizedText: Value(assetOcr.text),
+              x1: Value(assetOcr.x1),
+              y1: Value(assetOcr.y1),
+              x2: Value(assetOcr.x2),
+              y2: Value(assetOcr.y2),
+              x3: Value(assetOcr.x3),
+              y3: Value(assetOcr.y3),
+              x4: Value(assetOcr.x4),
+              y4: Value(assetOcr.y4),
+              boxScore: Value(assetOcr.boxScore),
+              textScore: Value(assetOcr.textScore),
+              isVisible: Value(assetOcr.isVisible),
+            );
 
-          batch.insert(
-            _db.assetOcrEntity,
-            companion.copyWith(id: Value(assetOcr.id)),
-            onConflict: DoUpdate((_) => companion),
-          );
-        }
+            batch.insert(
+              _db.assetOcrEntity,
+              companion.copyWith(id: Value(assetOcr.id)),
+              onConflict: DoUpdate((_) => companion),
+            );
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetOcrV1', error, stack);
@@ -2237,8 +2484,9 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
     await _db.transaction(() async {
       final scope = await _memoryV2Scope();
+      final writable = await _withoutAcceptedPermanentAssets(links, (link) => link.assetId);
       await _db.batch((batch) {
-        for (final link in links) {
+        for (final link in writable) {
           batch.insert(
             _db.settingsEntity,
             SettingsEntityCompanion.insert(
@@ -2312,30 +2560,33 @@ class SyncStreamRepository extends DatabaseAccessor<Drift> with $SyncStreamRepos
     }
   }
 
-  Future<void> updateAssetFacesV3(Iterable<SyncAssetFaceV2> data) async {
+  Future<void> updateAssetFacesV3(Iterable<SyncAssetFaceV2> input) async {
     try {
-      await _db.batch((batch) {
-        for (final assetFace in data) {
-          final companion = AssetFaceEntityCompanion(
-            assetId: Value(assetFace.assetId),
-            personId: Value(assetFace.personId),
-            imageWidth: Value(assetFace.imageWidth),
-            imageHeight: Value(assetFace.imageHeight),
-            boundingBoxX1: Value(assetFace.boundingBoxX1),
-            boundingBoxY1: Value(assetFace.boundingBoxY1),
-            boundingBoxX2: Value(assetFace.boundingBoxX2),
-            boundingBoxY2: Value(assetFace.boundingBoxY2),
-            sourceType: Value(assetFace.sourceType),
-            deletedAt: Value(assetFace.deletedAt),
-            isVisible: Value(assetFace.isVisible),
-          );
+      await _db.transaction(() async {
+        final data = await _withoutAcceptedPermanentAssets(input, (value) => value.assetId);
+        await _db.batch((batch) {
+          for (final assetFace in data) {
+            final companion = AssetFaceEntityCompanion(
+              assetId: Value(assetFace.assetId),
+              personId: Value(assetFace.personId),
+              imageWidth: Value(assetFace.imageWidth),
+              imageHeight: Value(assetFace.imageHeight),
+              boundingBoxX1: Value(assetFace.boundingBoxX1),
+              boundingBoxY1: Value(assetFace.boundingBoxY1),
+              boundingBoxX2: Value(assetFace.boundingBoxX2),
+              boundingBoxY2: Value(assetFace.boundingBoxY2),
+              sourceType: Value(assetFace.sourceType),
+              deletedAt: Value(assetFace.deletedAt),
+              isVisible: Value(assetFace.isVisible),
+            );
 
-          batch.insert(
-            _db.assetFaceEntity,
-            companion.copyWith(id: Value(assetFace.id)),
-            onConflict: DoUpdate((_) => companion),
-          );
-        }
+            batch.insert(
+              _db.assetFaceEntity,
+              companion.copyWith(id: Value(assetFace.id)),
+              onConflict: DoUpdate((_) => companion),
+            );
+          }
+        });
       });
     } catch (error, stack) {
       _logger.severe('Error: updateAssetFacesV3', error, stack);

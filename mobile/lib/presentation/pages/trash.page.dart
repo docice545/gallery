@@ -18,7 +18,6 @@ import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/toast.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
-import 'package:immich_mobile/services/cleanup.service.dart';
 import 'package:immich_mobile/utils/deletion_message.dart';
 import 'package:immich_mobile/utils/error_handler.dart';
 import 'package:immich_mobile/widgets/common/confirm_dialog.dart';
@@ -81,73 +80,71 @@ class TrashPage extends StatelessWidget {
   }
 }
 
-class TrashKebabMenu extends ConsumerWidget {
+class TrashKebabMenu extends ConsumerStatefulWidget {
   const TrashKebabMenu({super.key});
 
+  @override
+  ConsumerState<TrashKebabMenu> createState() => _TrashKebabMenuState();
+}
+
+class _TrashKebabMenuState extends ConsumerState<TrashKebabMenu> {
+  bool _emptying = false;
+
   Future<void> _emptyTrash(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => ConfirmDialog(
-        title: context.t.empty_trash,
-        content: context.t.empty_trash_confirmation,
-        ok: context.t.delete_permanently,
-      ),
-    );
-    if (confirmed != true || !context.mounted) {
+    if (_emptying) {
       return;
     }
-    final user = ref.read(currentUserProvider);
-    if (user == null) {
-      return;
-    }
+    setState(() => _emptying = true);
     try {
-      final service = ref.read(assetServiceProvider);
-      // Capture only this owner's synchronized Trash. Do not clear all cached
-      // rows based on a count-only response or delete newly arriving assets.
-      final ids = await service.getTrashIds(user.id);
-      if (!context.mounted) {
-        return;
-      }
-      if (ids.isEmpty) {
-        return;
-      }
-      final controller = BatchDeletionController(service, ids)..start();
-      final outcome = await showDialog<_BatchDeletionOutcome>(
+      final confirmed = await showDialog<bool>(
         context: context,
-        barrierDismissible: false,
-        builder: (_) => BatchDeletionDialog(controller: controller),
+        builder: (_) => ConfirmDialog(
+          title: context.t.empty_trash,
+          content: context.t.empty_trash_confirmation,
+          ok: context.t.delete_permanently,
+        ),
       );
-      if (outcome == null) {
+      if (confirmed != true || !context.mounted) {
         return;
       }
-      if (outcome.error != null) {
-        Error.throwWithStackTrace(outcome.error!, outcome.stackTrace!);
+      final user = ref.read(currentUserProvider);
+      if (user == null) {
+        return;
       }
-      final results = outcome.results!;
-      final completed = results.where((result) => result.complete).map((result) => result.id).toList();
-      final localIds = await service.getDeletionLocalIds(completed);
+      final service = ref.read(assetServiceProvider);
+      // Confirm this exact owner-scoped snapshot. A retry must never absorb
+      // newly trashed photos or hide anything based on a count-only response.
+      final ids = await service.getTrashIds(user.id);
+      if (!context.mounted || ids.isEmpty) {
+        return;
+      }
+      final results = await service.acceptPermanentDeletion(ids);
       if (!context.mounted) {
         return;
       }
-      final local = await ref.read(cleanupServiceProvider).deleteLocalAssetsDetailed(localIds, trash: false);
-      if (!context.mounted) {
-        return;
-      }
-      final reasons = results
-          .where((result) => !result.complete)
-          .map((result) => deletionMessage(context, result))
-          .toSet()
-          .join(', ');
-      final message =
-          '${context.t.permanent_deletion_result(removed: completed.length, remaining: results.length - completed.length, reasons: reasons)}. ${context.t.device_deletion_result(removed: local.deletedIds.length, remaining: local.remainingIds.length, names: local.remainingIds.take(25).join(', '))}';
+      // The service persists the accepted intent and updates reactive Drift
+      // rows before returning. Physical completion is owned by the server.
+      // Android originals/MediaStore consent remain a separate operation.
+      final accepted = results.where((result) => result.accepted).length;
       final toast = ref.read(toastServiceProvider);
-      if (results.any((result) => !result.complete) || local.remainingIds.isNotEmpty) {
-        toast.error(message);
+      if (accepted == ids.toSet().length && results.every((result) => result.accepted)) {
+        toast.success(context.t.trash_cleanup_accepted);
       } else {
-        toast.success(message);
+        final reasons = results
+            .where((result) => !result.accepted)
+            .map((result) => deletionMessage(context, result))
+            .toSet()
+            .join(', ');
+        toast.error(
+          context.t.trash_cleanup_partial(count: accepted, remaining: ids.toSet().length - accepted, reasons: reasons),
+        );
       }
     } catch (error, stack) {
-      handleError(error, stack: stack, description: 'Failed to empty captured Trash selection');
+      handleError(error, stack: stack, description: 'Failed to accept captured Trash for permanent deletion');
+    } finally {
+      if (mounted) {
+        setState(() => _emptying = false);
+      }
     }
   }
 
@@ -185,7 +182,7 @@ class TrashKebabMenu extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     // The overlay retains system insets even when an ancestor SafeArea has
     // consumed the anchor's padding. Match the menu panel's safe bounds.
     final mediaQuery = MediaQuery.of(Overlay.of(context).context);
@@ -226,7 +223,7 @@ class TrashKebabMenu extends ConsumerWidget {
           BaseActionButton(
             label: context.t.empty_trash,
             iconData: Icons.delete_forever_outlined,
-            onPressed: () => _emptyTrash(context, ref),
+            onPressed: _emptying ? null : () => _emptyTrash(context, ref),
             menuItem: true,
           ),
         ),

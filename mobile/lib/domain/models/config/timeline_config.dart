@@ -4,6 +4,8 @@ import 'package:immich_mobile/domain/models/timeline.model.dart';
 
 part 'timeline_config.freezed.dart';
 
+enum TimelinePresentation { classic, immersive }
+
 @freezed
 abstract class TimelineConfig with _$TimelineConfig {
   const factory TimelineConfig({
@@ -11,5 +13,7 @@ abstract class TimelineConfig with _$TimelineConfig {
     @Default(GroupAssetsBy.day) GroupAssetsBy groupAssetsBy,
     @Default(true) bool storageIndicator,
     @Default(true) bool autoplayLivePhotos,
+    @Default(TimelinePresentation.classic) TimelinePresentation presentation,
+    @Default(false) bool floatingDate,
   }) = _TimelineConfig;
 }

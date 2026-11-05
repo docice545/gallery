@@ -2,4 +2,4 @@ enum ImmichVariant { filled, ghost }
 
 enum ImmichColor { primary, secondary }
 
-enum SnackbarType { info, success, error }
+enum SnackbarType { info, success, error, neutral }

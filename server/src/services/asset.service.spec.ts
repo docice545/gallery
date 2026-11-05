@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, UnauthorizedException } from '
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { AssetResponseDto } from 'src/dtos/asset-response.dto.js';
+import { StorageCore } from 'src/cores/storage.core.js';
 import { AssetJobName, AssetStatsResponseDto } from 'src/dtos/asset.dto.js';
 import { AssetEditAction } from 'src/dtos/editing.dto.js';
 import {
@@ -2050,7 +2051,7 @@ describe(AssetService.name, () => {
       expect(mocks.asset.removeForDeletion).toHaveBeenCalledTimes(2);
       expect(mocks.sharedSpace.getSpacePersonsForAsset).toHaveBeenCalledTimes(1);
       expect(mocks.event.emit).toHaveBeenCalledTimes(1);
-      expect(mocks.job.queue).toHaveBeenCalledTimes(1);
+      expect(mocks.job.queue).not.toHaveBeenCalled();
     });
 
     it('does not repeat quota, events or file cleanup when a competing job already removed the row', async () => {
@@ -2099,7 +2100,7 @@ describe(AssetService.name, () => {
       expect(mocks.asset.removeForDeletion).toHaveBeenCalledTimes(1);
     });
 
-    it('should clean up files', async () => {
+    it('cleans authorized derivatives before the repository commits row removal', async () => {
       const asset = AssetFactory.from()
         .file({ type: AssetFileType.Thumbnail })
         .file({ type: AssetFileType.Preview })
@@ -2107,21 +2108,25 @@ describe(AssetService.name, () => {
         .file({ type: AssetFileType.Preview, isEdited: true })
         .file({ type: AssetFileType.Thumbnail, isEdited: true })
         .build();
+      const root = asset.files[0].path.split('/thumbs/', 1)[0] + '/thumbs';
+      const folders = vi.spyOn(StorageCore, 'getBaseFolder').mockReturnValue(root);
+      onTestFinished(() => folders.mockRestore());
       mocks.assetJob.getForAssetDeletion.mockResolvedValue(getForAssetDeletion(asset));
+      mocks.asset.removeForDeletion.mockImplementation(async (_asset, cleanup) => {
+        expect(cleanup).toBeTypeOf('function');
+        return cleanup!(
+          asset.files.map(({ path }) => path),
+          () => Promise.resolve(false),
+        );
+      });
 
       await sut.handleAssetDeletion({ id: asset.id, deleteOnDisk: true, deletionId: asset.id });
 
-      expect(mocks.job.queue.mock.calls).toEqual([
-        [
-          {
-            name: JobName.FileDelete,
-            data: {
-              files: asset.files.map(({ path }) => path),
-            },
-          },
-        ],
-      ]);
-      expect(mocks.asset.removeForDeletion).toHaveBeenCalledWith(getForAssetDeletion(asset));
+      expect(mocks.job.queue).not.toHaveBeenCalled();
+      expect(mocks.asset.removeForDeletion).toHaveBeenCalledWith(getForAssetDeletion(asset), expect.any(Function));
+      expect(mocks.storage.unlink.mock.calls.map(([path]) => path)).toEqual(asset.files.map(({ path }) => path));
+      const cleanupOrder = mocks.storage.unlink.mock.invocationCallOrder.at(-1)!;
+      expect(cleanupOrder).toBeLessThan(mocks.event.emit.mock.invocationCallOrder[0]);
     });
 
     it('should delete the entire stack if deleted asset was the primary asset and the stack would only contain one asset afterwards', async () => {

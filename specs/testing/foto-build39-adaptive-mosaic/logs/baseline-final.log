@@ -1,0 +1,844 @@
+00:00 +0: loading /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: Adaptive Mosaic landscapes classic dark font 1.0
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic landscapes classic dark font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:02 +0 -1: Adaptive Mosaic landscapes classic dark font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic landscapes classic dark font 1.0
+
+00:02 +0 -1: Adaptive Mosaic videos classic dark font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic videos classic dark font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:02 +0 -2: Adaptive Mosaic videos classic dark font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic videos classic dark font 1.0
+
+00:02 +0 -2: Adaptive Mosaic samsung-five classic dark font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic samsung-five classic dark font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:03 +0 -3: Adaptive Mosaic samsung-five classic dark font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic samsung-five classic dark font 1.0
+
+00:03 +0 -3: Adaptive Mosaic mixed classic dark font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: a value greater than or equal to <96>
+  Actual: <92.94615384615386>
+   Which: is not a value greater than or equal to <96>
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1029:17)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1029
+The test description was:
+  Adaptive Mosaic mixed classic dark font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:03 +0 -4: Adaptive Mosaic mixed classic dark font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic mixed classic dark font 1.0
+
+00:03 +0 -4: Adaptive Mosaic landscapes classic dark font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic landscapes classic dark font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:04 +0 -5: Adaptive Mosaic landscapes classic dark font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic landscapes classic dark font 2.0
+
+00:04 +0 -5: Adaptive Mosaic videos classic dark font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic videos classic dark font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:04 +0 -6: Adaptive Mosaic videos classic dark font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic videos classic dark font 2.0
+
+00:04 +0 -6: Adaptive Mosaic samsung-five classic dark font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic samsung-five classic dark font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:05 +0 -7: Adaptive Mosaic samsung-five classic dark font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic samsung-five classic dark font 2.0
+
+00:05 +0 -7: Adaptive Mosaic mixed classic dark font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: a value greater than or equal to <96>
+  Actual: <92.94615384615386>
+   Which: is not a value greater than or equal to <96>
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1029:17)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1029
+The test description was:
+  Adaptive Mosaic mixed classic dark font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:05 +0 -8: Adaptive Mosaic mixed classic dark font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic mixed classic dark font 2.0
+
+00:05 +0 -8: Adaptive Mosaic landscapes classic light font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic landscapes classic light font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:06 +0 -9: Adaptive Mosaic landscapes classic light font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic landscapes classic light font 1.0
+
+00:06 +0 -9: Adaptive Mosaic videos classic light font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic videos classic light font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:06 +0 -10: Adaptive Mosaic videos classic light font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic videos classic light font 1.0
+
+00:06 +0 -10: Adaptive Mosaic samsung-five classic light font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic samsung-five classic light font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:07 +0 -11: Adaptive Mosaic samsung-five classic light font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic samsung-five classic light font 1.0
+
+00:07 +0 -11: Adaptive Mosaic mixed classic light font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: a value greater than or equal to <96>
+  Actual: <92.94615384615386>
+   Which: is not a value greater than or equal to <96>
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1029:17)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1029
+The test description was:
+  Adaptive Mosaic mixed classic light font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:07 +0 -12: Adaptive Mosaic mixed classic light font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic mixed classic light font 1.0
+
+00:07 +0 -12: Adaptive Mosaic landscapes classic light font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic landscapes classic light font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:07 +0 -13: Adaptive Mosaic landscapes classic light font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic landscapes classic light font 2.0
+
+00:07 +0 -13: Adaptive Mosaic videos classic light font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic videos classic light font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:08 +0 -14: Adaptive Mosaic videos classic light font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic videos classic light font 2.0
+
+00:08 +0 -14: Adaptive Mosaic samsung-five classic light font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic samsung-five classic light font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:08 +0 -15: Adaptive Mosaic samsung-five classic light font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic samsung-five classic light font 2.0
+
+00:08 +0 -15: Adaptive Mosaic mixed classic light font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: a value greater than or equal to <96>
+  Actual: <92.94615384615386>
+   Which: is not a value greater than or equal to <96>
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1029:17)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1029
+The test description was:
+  Adaptive Mosaic mixed classic light font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:09 +0 -16: Adaptive Mosaic mixed classic light font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic mixed classic light font 2.0
+
+00:09 +0 -16: Adaptive Mosaic landscapes immersive dark font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic landscapes immersive dark font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:09 +0 -17: Adaptive Mosaic landscapes immersive dark font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic landscapes immersive dark font 1.0
+
+00:09 +0 -17: Adaptive Mosaic videos immersive dark font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic videos immersive dark font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:10 +0 -18: Adaptive Mosaic videos immersive dark font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic videos immersive dark font 1.0
+
+00:10 +0 -18: Adaptive Mosaic samsung-five immersive dark font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic samsung-five immersive dark font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:10 +0 -19: Adaptive Mosaic samsung-five immersive dark font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic samsung-five immersive dark font 1.0
+
+00:10 +0 -19: Adaptive Mosaic mixed immersive dark font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: a value greater than or equal to <96>
+  Actual: <92.94615384615386>
+   Which: is not a value greater than or equal to <96>
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1029:17)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1029
+The test description was:
+  Adaptive Mosaic mixed immersive dark font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:10 +0 -20: Adaptive Mosaic mixed immersive dark font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic mixed immersive dark font 1.0
+
+00:10 +0 -20: Adaptive Mosaic landscapes immersive dark font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic landscapes immersive dark font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:11 +0 -21: Adaptive Mosaic landscapes immersive dark font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic landscapes immersive dark font 2.0
+
+00:11 +0 -21: Adaptive Mosaic videos immersive dark font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic videos immersive dark font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:11 +0 -22: Adaptive Mosaic videos immersive dark font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic videos immersive dark font 2.0
+
+00:11 +0 -22: Adaptive Mosaic samsung-five immersive dark font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic samsung-five immersive dark font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:12 +0 -23: Adaptive Mosaic samsung-five immersive dark font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic samsung-five immersive dark font 2.0
+
+00:12 +0 -23: Adaptive Mosaic mixed immersive dark font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: a value greater than or equal to <96>
+  Actual: <92.94615384615386>
+   Which: is not a value greater than or equal to <96>
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1029:17)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1029
+The test description was:
+  Adaptive Mosaic mixed immersive dark font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:12 +0 -24: Adaptive Mosaic mixed immersive dark font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic mixed immersive dark font 2.0
+
+00:12 +0 -24: Adaptive Mosaic landscapes immersive light font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic landscapes immersive light font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:12 +0 -25: Adaptive Mosaic landscapes immersive light font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic landscapes immersive light font 1.0
+
+00:12 +0 -25: Adaptive Mosaic videos immersive light font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic videos immersive light font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:13 +0 -26: Adaptive Mosaic videos immersive light font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic videos immersive light font 1.0
+
+00:13 +0 -26: Adaptive Mosaic samsung-five immersive light font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic samsung-five immersive light font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:13 +0 -27: Adaptive Mosaic samsung-five immersive light font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic samsung-five immersive light font 1.0
+
+00:13 +0 -27: Adaptive Mosaic mixed immersive light font 1.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: a value greater than or equal to <96>
+  Actual: <92.94615384615386>
+   Which: is not a value greater than or equal to <96>
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1029:17)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1029
+The test description was:
+  Adaptive Mosaic mixed immersive light font 1.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:14 +0 -28: Adaptive Mosaic mixed immersive light font 1.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic mixed immersive light font 1.0
+
+00:14 +0 -28: Adaptive Mosaic landscapes immersive light font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic landscapes immersive light font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:14 +0 -29: Adaptive Mosaic landscapes immersive light font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic landscapes immersive light font 2.0
+
+00:14 +0 -29: Adaptive Mosaic videos immersive light font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic videos immersive light font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:15 +0 -30: Adaptive Mosaic videos immersive light font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic videos immersive light font 2.0
+
+00:15 +0 -30: Adaptive Mosaic samsung-five immersive light font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: be in range from 2 (inclusive) to 3 (inclusive)
+  Actual: <1>
+A date with enough material must not become a run of full-width singletons
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1015:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1015
+The test description was:
+  Adaptive Mosaic samsung-five immersive light font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:15 +0 -31: Adaptive Mosaic samsung-five immersive light font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic samsung-five immersive light font 2.0
+
+00:15 +0 -31: Adaptive Mosaic mixed immersive light font 2.0
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: a value greater than or equal to <96>
+  Actual: <92.94615384615386>
+   Which: is not a value greater than or equal to <96>
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart:1029:17)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart line 1029
+The test description was:
+  Adaptive Mosaic mixed immersive light font 2.0
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:15 +0 -32: Adaptive Mosaic mixed immersive light font 2.0 [E]
+  Test failed. See exception logs above.
+  The test description was: Adaptive Mosaic mixed immersive light font 2.0
+
+00:15 +0 -32: (tearDownAll)
+00:15 +0 -32: Some tests failed.
+
+Failing tests:
+  /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Adaptive Mosaic landscapes classic dark font 1.0
+  /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Adaptive Mosaic landscapes classic dark font 2.0
+  /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Adaptive Mosaic landscapes classic light font 1.0
+  /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Adaptive Mosaic landscapes classic light font 2.0
+  ... and 28 more

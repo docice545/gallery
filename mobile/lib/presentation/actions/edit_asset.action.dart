@@ -36,9 +36,9 @@ final _stateProvider = Provider.family.autoDispose<RemoteAsset?, ActionSource>((
   if (asset == null || asset.isTrashed || asset.isIndexTombstone) {
     return null;
   }
-  // Live/Motion stills can create an AI copy. Their existing crop edit pipeline
-  // remains disabled so the motion component is never silently desynchronized.
-  return asset.isEditable || (asset.isImage && asset.isMotionPhoto) ? asset : null;
+  // This editor exports a separate still copy, including for Live Photos.
+  // Original-motion/server transform-edit eligibility remains unchanged.
+  return asset.isStillCopyEditable ? asset : null;
 }, dependencies: [assetsActionProvider, ownedAssetsActionProvider]);
 
 class EditAssetAction extends AssetActionBuilder {

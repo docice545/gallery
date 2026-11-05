@@ -13,13 +13,14 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import sanitize from 'sanitize-filename';
 import { StorageCore } from 'src/cores/storage.core.js';
-import { AssetMediaResponseDto } from 'src/dtos/asset-media-response.dto.js';
+import { AssetMediaResponseDto, AssetMediaStatus } from 'src/dtos/asset-media-response.dto.js';
 import { AuthDto } from 'src/dtos/auth.dto.js';
 import {
   MAGIC_ERASER_LIMITS,
   MagicEraserCapabilitiesDto,
   MagicEraserCreateDto,
   MagicEraserJobResponseDto,
+  MagicEraserSaveDto,
 } from 'src/dtos/magic-eraser.dto.js';
 import { AssetType, CacheControl, ImmichWorker, Permission, StorageFolder } from 'src/enum.js';
 import { AssetRepository } from 'src/repositories/asset.repository.js';
@@ -42,6 +43,9 @@ type Job = MagicEraserJobResponseDto & {
   result?: string;
   previewPath?: string;
   metadataWritten?: boolean;
+  savedAt?: Date;
+  saveOffsetMinutes?: number;
+  copyDateFinalized?: boolean;
   uploadResponse?: AssetMediaResponseDto;
   savePromise?: Promise<AssetMediaResponseDto>;
 };
@@ -295,18 +299,18 @@ export class MagicEraserService extends BaseService implements OnModuleInit, OnM
     return this.response(job);
   }
 
-  async save(auth: AuthDto, id: string, jobId: string): Promise<AssetMediaResponseDto> {
+  async save(auth: AuthDto, id: string, jobId: string, dto: MagicEraserSaveDto = {}): Promise<AssetMediaResponseDto> {
     const job = await this.getJob(auth, id, jobId);
-    if (job.uploadResponse) {
-      return job.uploadResponse;
-    }
     if (job.savePromise) {
       return job.savePromise;
     }
-    if (job.status !== 'ready' || !job.result) {
+    if (job.uploadResponse && job.copyDateFinalized) {
+      return job.uploadResponse;
+    }
+    if (!job.uploadResponse && (job.status !== 'ready' || !job.result)) {
       throw new ConflictException('Result is not ready');
     }
-    job.savePromise = this.saveCopy(auth, job);
+    job.savePromise = job.uploadResponse ? this.finalizeCopyDate(job) : this.saveCopy(auth, job, dto);
     try {
       return await job.savePromise;
     } finally {
@@ -314,11 +318,15 @@ export class MagicEraserService extends BaseService implements OnModuleInit, OnM
     }
   }
 
-  private async saveCopy(auth: AuthDto, job: Job) {
+  private async saveCopy(auth: AuthDto, job: Job, dto: MagicEraserSaveDto) {
     const source = job.source;
-    const date = new Date(source.exifInfo?.dateTimeOriginal ?? source.fileCreatedAt);
+    // A copy is created now, independently of the original's capture date.
+    // Keep one instant for the whole save/retry session so a lost response
+    // cannot change the JPEG bytes/checksum and create another asset.
+    const date = (job.savedAt ??= new Date());
+    const offset = (job.saveOffsetMinutes ??= dto.timeZoneOffsetMinutes ?? 0);
     if (!job.metadataWritten) {
-      await this.eraser.writeCopyMetadata(job.result!, { ...source.exifInfo, dateTimeOriginal: date }, date);
+      await this.eraser.writeCopyMetadata(job.result!, source.exifInfo ?? {}, date, offset);
       job.metadataWritten = true;
     }
     // New staging path per attempt avoids a delayed upload-error cleanup deleting a retry.
@@ -346,7 +354,7 @@ export class MagicEraserService extends BaseService implements OnModuleInit, OnM
       auth,
       {
         fileCreatedAt: date,
-        fileModifiedAt: source.fileModifiedAt,
+        fileModifiedAt: date,
         filename,
         visibility: source.visibility,
         metadata: [
@@ -367,6 +375,21 @@ export class MagicEraserService extends BaseService implements OnModuleInit, OnM
     job.uploadResponse = response;
     job.assetId = response.id;
     job.status = 'saved';
+    return this.finalizeCopyDate(job);
+  }
+
+  private async finalizeCopyDate(job: Job): Promise<AssetMediaResponseDto> {
+    const response = job.uploadResponse!;
+    if (!job.copyDateFinalized && response.status === AssetMediaStatus.CREATED) {
+      // uploadAsset's generic initial date is UTC. Publish the wall-clock value
+      // for this newly created copy before responding, exactly as its EXIF will
+      // produce during normal metadata extraction. Never rewrite a duplicate.
+      // The upload ID is cached first: a transient SQL failure retries only this
+      // finalization, without staging or uploading the image for a second time.
+      const localDateTime = new Date(job.savedAt!.getTime() + (job.saveOffsetMinutes ?? 0) * 60_000);
+      await this.assetRepository.update({ id: response.id, localDateTime });
+    }
+    job.copyDateFinalized = true;
     return response;
   }
 

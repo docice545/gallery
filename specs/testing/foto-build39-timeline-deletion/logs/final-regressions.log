@@ -1,0 +1,1019 @@
+00:00 +0: loading /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart
+00:00 +0: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks an empty segment yields no chunks
+00:00 +1: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks a negative assetCount yields no chunks
+00:00 +2: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks fewer assets than the chunk size yields one exact chunk
+00:00 +3: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks exactly one chunk size yields one chunk
+00:00 +4: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks one more than a chunk size yields two chunks, the second of count 1
+00:00 +5: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks chunks are contiguous and their counts sum to assetCount
+00:00 +6: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks chunks start at a non-zero firstAssetIndex
+00:00 +7: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks a chunkSize of zero is clamped to one so the sequence stays finite
+00:00 +8: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: assetScanChunks a negative chunkSize is clamped to one
+00:00 +9: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex finds a target in the first chunk
+00:00 +10: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex finds a target in a later chunk, accounting for preceding chunks
+00:00 +11: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex resolves an absolute index when the segment does not start at zero
+00:00 +12: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex finds the last asset in the segment
+00:00 +13: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex returns null for an absent target, requesting each chunk exactly once
+00:00 +14: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex resolves correctly when a chunk returns fewer assets than requested
+00:00 +15: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex returns null instead of throwing when a read fails
+00:00 +16: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex short-circuits an empty segment without reading
+00:00 +17: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex stops at the cap and gives up rather than scanning a huge segment
+00:00 +18: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex still finds a target that sits just inside the cap
+00:00 +19: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex matches on remoteId even when localId differs
+00:00 +20: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex matches on localId when neither side has a remote id
+00:00 +21: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex falls back to checksum when neither id pair is comparable
+00:00 +22: /workspace/gallery/mobile/test/presentation/widgets/timeline/asset_scan_test.dart: findAssetIndex does not match an asset that shares nothing
+00:01 +23: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_row_layout_test.dart: one asset fills the row with bounded photo-first height
+00:01 +24: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_row_layout_test.dart: two assets share the full row without a trailing gap
+00:01 +25: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_row_layout_test.dart: rebalances an incomplete group instead of leaving a singleton after a full row
+00:01 +26: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_row_layout_test.dart: mixed portrait, landscape and malformed dimensions produce finite full-width rows
+00:01 +27: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_row_layout_test.dart: deterministic offsets and inverse row mappings cover every lazily loaded asset
+00:01 +28: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_row_layout_test.dart: segment jumps, sliver offsets and headers use the rebalanced row geometry
+00:02 +29: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: (setUpAll)
+00:02 +29: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: a solitary portrait stays compact and centered with motion and stack badges
+00:02 +30: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: a solitary portrait stays compact and centered with motion and stack badges
+00:02 +31: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: a solitary portrait stays compact and centered with motion and stack badges
+00:02 +32: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: a solitary portrait stays compact and centered with motion and stack badges
+00:02 +33: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: a solitary portrait stays compact and centered with motion and stack badges
+00:03 +34: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 2 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +35: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 3 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +36: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_row_layout_test.dart: single landscapes fill width while solitary portraits keep a compact bounded footprint
+00:03 +37: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 4 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +38: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 4 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +39: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 4 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +40: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 4 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +41: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 4 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +42: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 4 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +43: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 4 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +44: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_row_layout_test.dart: global sliver row offsets round-trip at exact boundaries in both presentations
+00:03 +45: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 5 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +46: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 5 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +47: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 5 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +48: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 5 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +49: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 5 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +50: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 5 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +51: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: density 5 keeps a Live Photo stack as one tile beside ordinary photos
+00:03 +52: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_row_layout_test.dart: row bounds and exact sums hold across compact screens, zoom levels and pathological ratios
+00:03 +53: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_row_layout_test.dart: row bounds and exact sums hold across compact screens, zoom levels and pathological ratios
+00:03 +54: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: rebalanced mixed rows fill the width without abandoning the last portrait
+00:03 +55: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: rebalanced mixed rows fill the width without abandoning the last portrait
+00:03 +56: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_row_layout_test.dart: viewport widths and zoom column counts produce valid geometry without a frame-time full-library calculation
+00:03 +57: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_row_layout_test.dart: viewport widths and zoom column counts produce valid geometry without a frame-time full-library calculation
+00:03 +58: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: long press and selection taps preserve dense image geometry, Hero and badges
+00:03 +59: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: long press and selection taps preserve dense image geometry, Hero and badges
+00:03 +60: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: long press and selection taps preserve dense image geometry, Hero and badges
+00:04 +61: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: dense geometry selects one central visible motion tile and completion never cascades
+00:04 +62: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: a cropped viewport below the visibility threshold does not autoplay a motion tile
+00:04 +63: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: dense rows stop on scroll and require substantial movement to a different candidate
+00:04 +64: /workspace/gallery/mobile/test/presentation/widgets/timeline/dense_timeline_overlays_test.dart: (tearDownAll)
+00:05 +64: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: (setUpAll)
+00:05 +64: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +65: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +66: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +67: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +68: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +69: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +70: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +71: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +72: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +73: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +74: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +75: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +76: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +77: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +78: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +79: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +80: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +81: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +82: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +83: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +84: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +85: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +86: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +87: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +88: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +89: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +90: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +91: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +92: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +93: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +94: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +95: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +96: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +97: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:05 +98: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +99: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +100: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +101: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +102: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +103: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +104: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +105: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +106: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +107: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +108: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +109: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +110: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +111: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +112: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +113: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +114: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +115: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +116: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +117: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +118: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +119: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +120: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +121: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +122: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +123: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +124: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +125: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +126: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +127: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +128: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +129: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +130: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +131: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +132: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +133: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +134: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +135: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +136: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:06 +137: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +138: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +139: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +140: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +141: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +142: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +143: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +144: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:06 +145: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in classic
+00:07 +146: /workspace/gallery/mobile/test/presentation/widgets/timeline/live_photo_scope_test.dart: presentation and density updates retain one playback lease and cannot bypass selection gating
+00:07 +147: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in classic
+00:07 +148: /workspace/gallery/mobile/test/presentation/widgets/timeline/live_photo_scope_test.dart: cold AutoRoute TimelinePresentation.classic tab activates motion without a viewer roundtrip
+00:08 +149: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal panorama stays bounded across densities in classic
+00:08 +150: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal panorama stays bounded across densities in classic
+00:08 +151: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal panorama stays bounded across densities in classic
+00:08 +152: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal panorama stays bounded across densities in classic
+00:08 +153: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal panorama stays bounded across densities in classic
+00:08 +154: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal panorama stays bounded across densities in classic
+00:08 +155: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal panorama stays bounded across densities in classic
+00:08 +156: /workspace/gallery/mobile/test/presentation/widgets/timeline/live_photo_scope_test.dart: remote Live Photos can preview their known server motion pair without local extraction
+00:08 +157: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:08 +158: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:08 +159: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:08 +160: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:08 +161: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:08 +162: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:08 +163: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:08 +164: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +165: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +166: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +167: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +168: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +169: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +170: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +171: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +172: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 4x3 stays bounded across densities in immersive
+00:09 +173: /workspace/gallery/mobile/test/presentation/widgets/timeline/live_photo_scope_test.dart: disabled setting prevents playback, and turning it off releases the active preview
+00:09 +174: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +175: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +176: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +177: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +178: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +179: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +180: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +181: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +182: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +183: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +184: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +185: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +186: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +187: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +188: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal 16x9 stays bounded across densities in immersive
+00:09 +189: /workspace/gallery/mobile/test/presentation/widgets/timeline/live_photo_scope_test.dart: scope unmount cancels pending playback and disposes active previews without late callbacks
+00:10 +190: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: single horizontal panorama stays bounded across densities in immersive
+00:10 +191: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: offline year navigation, decoded cached photos and late memories share one geometry
+00:11 +191: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: mixed SQLite Timeline survives offline process restart without waiting for user refresh
+C9 mixed: seed durable SQLite and thumbnail fixture
+C9 mixed: open and seed database
+C9 mixed: first mount
+C9 mixed: initial widget frame mounted
+C9 mixed: allow native/SQLite work
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+C9 mixed: allow native/SQLite work
+00:12 +192: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: mixed SQLite Timeline survives offline process restart without waiting for user refresh
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: capture decoded photo pixels
+C9 mixed: loaded pixels survive sync error
+C9 mixed: capture decoded photo pixels
+C9 mixed: close database and reopen durable state
+C9 mixed: cold mount from reopened SQLite and native cache
+C9 mixed: initial widget frame mounted
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: capture decoded photo pixels
+C9 mixed: Backend returns
+C9 mixed: allow native/SQLite work
+00:13 +193: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: mixed SQLite Timeline survives offline process restart without waiting for user refresh
+C9 mixed: allow native/SQLite work
+C9 mixed: allow native/SQLite work
+C9 mixed: capture decoded photo pixels
+C9 mixed: dispose database fixture
+00:13 +194: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: selection replaces an expanded header without moving the visible photo or changing its ID
+00:13 +194: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: mixed-refused SQLite Timeline survives offline process restart without waiting for user refresh
+C9 mixed-refused: seed durable SQLite and thumbnail fixture
+C9 mixed-refused: open and seed database
+C9 mixed-refused: first mount
+C9 mixed-refused: initial widget frame mounted
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: capture decoded photo pixels
+C9 mixed-refused: loaded pixels survive sync error
+C9 mixed-refused: capture decoded photo pixels
+C9 mixed-refused: close database and reopen durable state
+C9 mixed-refused: cold mount from reopened SQLite and native cache
+C9 mixed-refused: initial widget frame mounted
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: capture decoded photo pixels
+C9 mixed-refused: Backend returns
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: allow native/SQLite work
+C9 mixed-refused: capture decoded photo pixels
+C9 mixed-refused: dispose database fixture
+00:14 +195: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: selection replaces an expanded header without moving the visible photo or changing its ID
+00:14 +195: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: local-only SQLite Timeline survives offline process restart without waiting for user refresh
+C9 local-only: seed durable SQLite and thumbnail fixture
+C9 local-only: open and seed database
+00:14 +196: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: local-only SQLite Timeline survives offline process restart without waiting for user refresh
+C9 local-only: first mount
+C9 local-only: initial widget frame mounted
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: capture decoded photo pixels
+C9 local-only: loaded pixels survive sync error
+C9 local-only: capture decoded photo pixels
+C9 local-only: close database and reopen durable state
+C9 local-only: cold mount from reopened SQLite and native cache
+C9 local-only: initial widget frame mounted
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: capture decoded photo pixels
+C9 local-only: Backend returns
+C9 local-only: allow native/SQLite work
+00:14 +197: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: local-only SQLite Timeline survives offline process restart without waiting for user refresh
+C9 local-only: allow native/SQLite work
+C9 local-only: allow native/SQLite work
+C9 local-only: capture decoded photo pixels
+C9 local-only: dispose database fixture
+00:15 +198: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: actual Timeline selection count stays in one safe toolbar after taps and scroll at Size(720.0, 320.0)
+00:15 +198: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: empty SQLite Timeline survives offline process restart without waiting for user refresh
+C9 empty: seed durable SQLite and thumbnail fixture
+C9 empty: open and seed database
+C9 empty: first mount
+C9 empty: initial widget frame mounted
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+00:15 +199: /workspace/gallery/mobile/test/presentation/widgets/timeline/offline_timeline_restart_test.dart: empty SQLite Timeline survives offline process restart without waiting for user refresh
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: loaded pixels survive sync error
+C9 empty: close database and reopen durable state
+C9 empty: cold mount from reopened SQLite and native cache
+C9 empty: initial widget frame mounted
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: Backend returns
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: allow native/SQLite work
+C9 empty: dispose database fixture
+00:15 +200: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: false)
+00:16 +201: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: true)
+00:17 +202: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: true)
+00:17 +203: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: true)
+00:17 +204: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: true)
+00:17 +205: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: true)
+00:18 +206: /workspace/gallery/mobile/test/presentation/widgets/timeline/overview/overview_segment_builder_test.dart: passes overview drilldown handler to rendered card when override exists
+00:18 +207: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real sliver mosaic renders 1 images without empty cells or original requests
+00:18 +208: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real sliver mosaic renders 1 images without empty cells or original requests
+00:18 +209: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real sliver mosaic renders 1 images without empty cells or original requests
+00:18 +210: /workspace/gallery/mobile/test/presentation/widgets/timeline/overview/overview_segment_builder_test.dart: card shows Thumbnail from cache even when buffer no longer covers firstAssetIndex
+00:18 +211: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real sliver mosaic renders 2 images without empty cells or original requests
+00:18 +212: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real sliver mosaic renders 2 images without empty cells or original requests
+00:18 +213: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real sliver mosaic renders 2 images without empty cells or original requests
+00:18 +214: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: real sliver mosaic renders 6 images without empty cells or original requests
+00:18 +215: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 2 Brightness.dark
+00:19 +216: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 2 Brightness.light
+00:19 +217: /workspace/gallery/mobile/test/presentation/widgets/timeline/overview/timeline_overview_card_test.dart: (setUpAll)
+00:19 +217: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 3 Brightness.dark
+00:19 +218: /workspace/gallery/mobile/test/presentation/widgets/timeline/overview/timeline_overview_card_test.dart: year card renders compact label, count, and representative thumbnail
+00:19 +219: /workspace/gallery/mobile/test/presentation/widgets/timeline/overview/timeline_overview_card_test.dart: year card renders compact label, count, and representative thumbnail
+00:19 +220: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.dark
+00:19 +221: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.dark
+00:20 +222: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.dark
+00:20 +223: /workspace/gallery/mobile/test/presentation/widgets/timeline/overview/timeline_overview_card_test.dart: actionable year card exposes localized button semantics
+00:20 +224: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:20 +225: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:20 +226: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:20 +227: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:20 +228: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:20 +229: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:20 +230: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:20 +231: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:20 +232: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 5 Brightness.dark
+00:20 +233: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 5 Brightness.dark
+00:20 +234: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 5 Brightness.dark
+00:20 +235: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 5 Brightness.dark
+00:20 +236: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 5 Brightness.light
+00:20 +237: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.dark
+00:21 +238: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +239: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +240: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +241: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +242: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +243: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +244: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +245: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +246: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +247: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +248: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +249: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +250: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +251: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +252: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +253: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +254: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +255: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +256: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +257: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +258: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +259: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +260: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +261: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +262: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +263: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +264: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +265: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +266: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +267: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +268: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +269: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +270: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +271: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +272: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +273: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +274: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +275: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +276: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +277: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:21 +278: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 3 Brightness.dark
+00:21 +279: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 3 Brightness.light
+00:22 +280: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 4 Brightness.dark
+00:22 +281: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: (setUpAll)
+00:22 +281: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 4 Brightness.light
+00:22 +282: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: year jump uses measured content origin before any image has loaded
+00:22 +283: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: year jump uses measured content origin before any image has loaded
+00:23 +284: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 5 Brightness.light
+00:23 +285: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: date stays centered through live theme/accent changes: Size(360.0, 640.0) ru
+00:23 +286: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: Build39 portrait video row does not jump when actual thumbnail decoding completes
+00:23 +287: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: date stays centered through live theme/accent changes: Size(360.0, 640.0) de
+00:23 +288: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: selection keeps image geometry and elements stable with the existing six-pixel tile corners
+00:23 +289: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: selection keeps image geometry and elements stable with the existing six-pixel tile corners
+00:23 +290: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: selection keeps image geometry and elements stable with the existing six-pixel tile corners
+00:23 +291: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: date stays centered through live theme/accent changes: Size(800.0, 400.0) de
+00:23 +292: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: date and month boundaries preserve order and date selection across differently shaped rows
+00:23 +293: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: date and month boundaries preserve order and date selection across differently shaped rows
+00:23 +294: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: one fixed date overlay ignores photo gestures and uses optional local place: null
+00:23 +295: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: mosaic and headers fit Size(390.0, 844.0) with enlarged text without RenderFlex overflow
+00:23 +296: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: mosaic and headers fit Size(390.0, 844.0) with enlarged text without RenderFlex overflow
+00:23 +297: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: mosaic and headers fit Size(390.0, 844.0) with enlarged text without RenderFlex overflow
+00:23 +298: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: a shared primary controller with two positions never reads an ambiguous position
+00:23 +299: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: mosaic and headers fit Size(320.0, 568.0) with enlarged text without RenderFlex overflow
+00:23 +300: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: mosaic and headers fit Size(320.0, 568.0) with enlarged text without RenderFlex overflow
+00:23 +301: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: mosaic and headers fit Size(320.0, 568.0) with enlarged text without RenderFlex overflow
+00:23 +302: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: mosaic and headers fit Size(320.0, 568.0) with enlarged text without RenderFlex overflow
+00:23 +303: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_positions_test.dart: cancelling an accepted thumb gesture restores ordinary scroll notifications
+00:23 +304: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: mosaic and headers fit Size(844.0, 390.0) with enlarged text without RenderFlex overflow
+00:23 +305: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: a 50000-item mosaic keeps image loading and render children bounded while scrolling
+00:24 +306: /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart: (tearDownAll)
+00:24 +306: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: (setUpAll)
+00:24 +306: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: year grouping builds year labels and counts unique years
+00:24 +307: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: month grouping builds month labels and counts unique months
+00:24 +308: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: day grouping builds month labels and counts unique months
+00:24 +309: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: empty layout returns empty scrubber segments
+00:24 +310: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: layout starting with non-time bucket returns empty scrubber segments
+00:24 +311: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: findScrubberLayoutSegmentIndex matches by year for year grouping
+00:24 +312: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: findScrubberLayoutSegmentIndex matches by year and month for month and day grouping
+00:24 +313: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: findScrubberLayoutSegmentIndex returns -1 for non-time and no-match cases
+00:24 +314: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: shouldRebuildScrubberSegments returns true when dates change but final end offset is unchanged
+00:24 +315: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: shouldRebuildScrubberSegments returns true when groupBy changes
+00:24 +316: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: shouldRebuildScrubberSegments returns false when segment content is unchanged
+00:24 +317: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: shouldRebuildScrubberSegments returns true when scrubber height changes
+00:24 +318: /workspace/gallery/mobile/test/presentation/widgets/timeline/scrubber_segments_test.dart: (tearDownAll)
+00:24 +318: /workspace/gallery/mobile/test/presentation/widgets/timeline/selection_gesture_test.dart: taps and vertical scrolling never start a range selection
+00:25 +319: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_args_test.dart: timeline args follow constraints after a zero-sized first frame while buckets are still loading
+00:25 +320: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_args_test.dart: timeline args follow constraints after a zero-sized first frame while buckets are still loading
+00:25 +321: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_args_test.dart: timeline args follow constraints after a zero-sized first frame while buckets are still loading
+00:25 +322: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_args_test.dart: timeline args follow constraints after a zero-sized first frame while buckets are still loading
+00:25 +323: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_args_test.dart: timeline args follow constraints after a zero-sized first frame while buckets are still loading
+00:25 +324: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_args_test.dart: timeline args follow constraints after a zero-sized first frame while buckets are still loading
+00:26 +325: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_args_test.dart: timeline args follow constraints after a zero-sized first frame once buckets resolve
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:26 +326: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_args_test.dart: a height-only relayout (multiselect app bar toggle) keeps the timeline, a width change refreshes it
+00:26 +327: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_integration_test.dart: (setUpAll)
+00:26 +327: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_integration_test.dart: Timeline emptyWidget wiring renders the empty state when the timeline resolves to zero buckets
+00:27 +328: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_test.dart: first-run state shows the onboarding title and an Enable Backup action
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:27 +329: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_test.dart: first-run state shows the onboarding title and an Enable Backup action
+00:28 +330: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_test.dart: first-run state shows the onboarding title and an Enable Backup action
+00:28 +331: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_test.dart: while the initial remote sync runs it shows a loader, not the onboarding
+00:28 +332: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_test.dart: while the filtered search is still in flight it shows a loader, not the no-results state
+00:28 +333: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_test.dart: an active filter shows the no-results state and clearing it resets the filter
+00:28 +334: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_empty_state_test.dart: (tearDownAll)
+00:28 +334: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_anchor_test.dart: months: remembered date within same month is kept
+00:28 +335: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_anchor_test.dart: months: remembered date in a different month is dropped
+00:28 +336: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_anchor_test.dart: years: remembered date within same year is kept
+00:28 +337: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_anchor_test.dart: years: remembered date in a different year is dropped
+00:28 +338: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_anchor_test.dart: all: always returns bucket date even when remembered is present
+00:28 +339: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_anchor_test.dart: null remembered: always returns bucket date
+00:29 +340: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_bottom_pill_test.dart: (setUpAll)
+00:29 +340: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_bottom_pill_test.dart: TimelineGroupingBottomPill renders the full 3-segment selector
+00:30 +341: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: grouping feedback follows the live FOTO haptic preference
+00:30 +342: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: grouping feedback follows the live FOTO haptic preference
+00:30 +343: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: grouping feedback follows the live FOTO haptic preference
+00:30 +344: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: grouping feedback follows the live FOTO haptic preference
+00:30 +345: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: grouping feedback follows the live FOTO haptic preference
+00:30 +346: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: grouping feedback follows the live FOTO haptic preference
+00:30 +347: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_bottom_pill_test.dart: TimelineGroupingBottomPill floats max(safe-area, 26) above the bottom
+00:30 +348: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector renders years, months, and days segments in an app-bar action slot
+00:31 +349: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector renders years, months, and days segments in an app-bar action slot
+00:31 +350: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector renders years, months, and days segments in an app-bar action slot
+00:31 +351: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector renders years, months, and days segments in an app-bar action slot
+00:31 +352: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_bottom_pill_test.dart: TimelineGroupingBottomPill RTL: renders and segment taps still update the grouping
+00:31 +353: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_bottom_pill_test.dart: TimelineGroupingBottomPill RTL: renders and segment taps still update the grouping
+00:31 +354: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector default variant keeps its own surface and border (app-bar hosts paint nothing)
+00:31 +355: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector selects the segment matching the active grouping
+00:31 +356: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector opens on the All segment regardless of the Group by setting
+00:31 +357: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector selected segment exposes button semantics without duplicate child text
+00:31 +358: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector tapping each segment changes the grouping without writing the Group by setting
+00:31 +359: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector settings picker changes leave the selector alone
+00:31 +360: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector disabled selector does not change the grouping
+00:31 +361: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector disabled selector removes actionable semantics and does not change the grouping
+00:31 +362: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector segments meet compact mobile tap target inside the app bar slot
+00:31 +363: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector large text and narrow width keep all labels inside the selector
+00:31 +364: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector reduced motion removes nonessential selector animation
+00:31 +365: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector rtl layout preserves tap behavior and directional visual order
+00:32 +366: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector compact mode renders only the current grouping in a small app-bar chip
+00:32 +367: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector compact chip keeps the full mode name as its accessibility value
+00:32 +368: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector compact mode tapping Day zooms out to Month
+00:32 +369: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector compact mode bounces between extremes
+00:32 +370: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector compact mode keeps bouncing back to Years when the chip is recreated between taps
+00:32 +371: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector compact mode opens a direct selection menu on long press
+00:32 +372: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector compact mode resumes bouncing after a long-press menu selection
+00:32 +373: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: TimelineGroupingSelector compact chip paints its initial in full at normal size and never clips when enlarged
+00:32 +374: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_selector_test.dart: (tearDownAll)
+00:32 +374: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials en defines all three and keeps them distinguishable
+00:32 +375: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials de defines all three and keeps them distinguishable
+00:32 +376: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials fr defines all three and keeps them distinguishable
+00:32 +377: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials it defines all three and keeps them distinguishable
+00:32 +378: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials nl defines all three and keeps them distinguishable
+00:32 +379: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials pl defines all three and keeps them distinguishable
+00:32 +380: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials es defines all three and keeps them distinguishable
+00:32 +381: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials ru defines all three and keeps them distinguishable
+00:32 +382: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials zh_Hans defines all three and keeps them distinguishable
+00:32 +383: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_grouping_short_labels_test.dart: compact grouping chip initials zh_Hant defines all three and keeps them distinguishable
+00:33 +384: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_header_test.dart: (setUpAll)
+00:33 +384: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_header_test.dart: year header renders year label and bulk-select affordance
+00:34 +385: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_pinch_zoom_test.dart: retained Timeline rebases pinch on an external density change
+00:35 +386: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_route_scope_test.dart: (setUpAll)
+00:35 +386: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_route_scope_test.dart: isolates temporal scope across sibling route subtrees
+00:36 +387: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +388: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +389: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +390: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +391: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +392: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +393: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +394: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +395: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +396: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:36 +397: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the personal timeline leaves a Space-scoped request for the Space timeline
+00:37 +398: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:37 +399: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +400: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +401: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +402: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +403: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +404: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +405: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +406: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +407: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +408: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +409: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +410: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +411: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +412: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +413: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +414: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +415: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +416: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +417: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +418: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +419: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:37 +420: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_drain_scope_test.dart: the Space timeline drains the request addressed to it
+00:39 +421: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_to_top_test.dart: status bar tap only scrolls the timeline when it is the visible page
+00:39 +422: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_to_top_test.dart: status bar tap only scrolls the timeline when it is the visible page
+00:41 +423: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_to_top_test.dart: status bar tap only scrolls the timeline when it is the visible page
+00:42 +424: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_scroll_to_top_test.dart: status bar tap only scrolls the timeline when it is the visible page
+00:43 +425: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: years mode uses overview segments
+00:43 +426: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: months mode uses overview segments
+00:43 +427: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: a pinned day groupBy stays on fixed grid segments
+00:43 +428: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: a pinned groupBy wins over the zoom level and renders the grid, not overview cards
+00:43 +429: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: S-7: with a pinned groupBy, changing the mode afterwards is ignored
+00:43 +430: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: date-less buckets in months mode fall back to fixed grid segments
+00:43 +431: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: date-less buckets in years mode fall back to fixed grid segments
+00:43 +432: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: TimeBuckets in months mode still use overview segments
+00:43 +433: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: empty bucket list in months mode produces no segments and no throw
+00:43 +434: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting (setUpAll)
+00:43 +434: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting S-4: empty buckets in Months mode produce no segments and do not throw
+00:43 +435: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting S-5: empty buckets in All mode with the month setting produce no segments
+00:43 +436: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting month setting renders a grid with month-only headers
+00:43 +437: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting month + day setting renders a grid with day headers
+00:43 +438: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting a leftover year setting falls back to the month + day grid
+00:43 +439: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting selecting Months still renders the overview cards
+00:43 +440: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting selecting Years still renders the overview cards
+00:43 +441: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_segment_provider_test.dart: grid grouping follows the persisted Group by setting (tearDownAll)
+00:43 +441: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_with_grouping_pill_test.dart: (setUpAll)
+00:43 +441: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_with_grouping_pill_test.dart: Timeline.withGroupingPill Trash opts into a measured footer and uses a measured selection action bar
+00:46 +442: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a year anchor in months mode and clears it after scrolling
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:46 +443: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_with_grouping_pill_test.dart: Timeline.withGroupingPill floating deletion result paints and receives touches before the grouping pill; pill recovers
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:46 +444: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a month anchor in all mode and clears it after scrolling
+00:46 +445: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a month anchor in all mode and clears it after scrolling
+00:47 +446: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a month anchor in all mode and clears it after scrolling
+00:47 +447: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a month anchor in all mode and clears it after scrolling
+00:47 +448: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a month anchor in all mode and clears it after scrolling
+00:47 +449: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_with_grouping_pill_test.dart: Timeline.withGroupingPill withGroupingPill adds pill clearance to the content bottom padding
+00:47 +450: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a month anchor on a month-grouped grid and clears it after scrolling
+00:47 +451: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a month anchor on a month-grouped grid and clears it after scrolling
+00:47 +452: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: resolves a month anchor on a month-grouped grid and clears it after scrolling
+00:48 +453: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: keeps a missing year anchor pending without scrolling
+00:48 +454: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_zoom_anchor_resolution_test.dart: (tearDownAll)
+00:49 +454: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: (setUpAll)
+00:49 +454: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Reflow resize keeps decoded pixels but a recycled server tile clears them
+00:50 +455: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/add_to_collection_surfaces_test.dart: Build39 album compact overflow retains contextual owner actions: true
+00:50 +456: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/add_to_collection_surfaces_test.dart: Build39 album compact overflow retains contextual owner actions: true
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:51 +457: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:51 +458: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +459: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +460: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +461: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +462: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +463: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +464: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +465: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +466: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +467: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+00:52 +468: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer
+00:53 +469: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 4 selected photos uses the real action and thumbnail renderer
+00:54 +470: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/compact_selection_theme_test.dart: compact selection toolbar: Brightness.light
+00:54 +471: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.local for 1 selected photos uses the real action and thumbnail renderer
+00:54 +472: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.local for 1 selected photos uses the real action and thumbnail renderer
+00:55 +473: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.local for 3 selected photos uses the real action and thumbnail renderer
+00:55 +474: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.local for 4 selected photos uses the real action and thumbnail renderer
+00:56 +475: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/compact_selection_toolbar_test.dart: compact selection toolbar preserves height and actions
+00:56 +476: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/compact_selection_toolbar_test.dart: compact selection toolbar preserves height and actions
+00:57 +477: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.disabled for 3 selected photos uses the real action and thumbnail renderer
+00:57 +478: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/compact_selection_toolbar_test.dart: en selection keeps 48dp actions at text scale 1.0 with safe insets
+00:57 +479: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.reduced for 1 selected photos uses the real action and thumbnail renderer
+00:57 +480: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.reduced for 1 selected photos uses the real action and thumbnail renderer
+00:57 +481: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.reduced for 1 selected photos uses the real action and thumbnail renderer
+00:57 +482: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.reduced for 1 selected photos uses the real action and thumbnail renderer
+00:58 +483: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.reduced for 3 selected photos uses the real action and thumbnail renderer
+00:58 +484: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.rejected for 1 selected photos uses the real action and thumbnail renderer
+Error (Failed to delete assets): Bad state: Synthetic server rejection
+test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart 275:13  main.<fn>.operation
+package:immich_mobile/presentation/actions/delete.action.dart 369:5          DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:18         DeleteAction._delete
+
+00:59 +485: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/map_bottom_sheet_timeline_test.dart: a docked draggable action sheet measures its extent instead of covering the photo list
+01:00 +486: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.rejected for 3 selected photos uses the real action and thumbnail renderer
+Error (Failed to delete assets): Bad state: Synthetic server rejection
+test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart 275:13  main.<fn>.operation
+package:immich_mobile/presentation/actions/delete.action.dart 369:5          DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:18         DeleteAction._delete
+
+01:00 +487: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/map_bottom_sheet_timeline_test.dart: starts collapsed with only the count and handle, then opens and closes on tap
+01:00 +488: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/map_bottom_sheet_timeline_test.dart: starts collapsed with only the count and handle, then opens and closes on tap
+01:00 +489: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.osCancelled for 3 selected photos uses the real action and thumbnail renderer
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+01:00 +490: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.osCancelled for 3 selected photos uses the real action and thumbnail renderer
+01:01 +491: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.osCancelled for 3 selected photos uses the real action and thumbnail renderer
+01:01 +492: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.osCancelled for 3 selected photos uses the real action and thumbnail renderer
+01:01 +493: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/map_bottom_sheet_timeline_test.dart: header drag opens the panel and an empty GPS result stays usable
+01:01 +494: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.unloaded for 1 selected photos uses the real action and thumbnail renderer
+01:01 +495: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.unloaded for 1 selected photos uses the real action and thumbnail renderer
+01:01 +496: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.unloaded for 1 selected photos uses the real action and thumbnail renderer
+01:01 +497: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.unloaded for 1 selected photos uses the real action and thumbnail renderer
+01:01 +498: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.unloaded for 1 selected photos uses the real action and thumbnail renderer
+01:01 +499: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/map_bottom_sheet_timeline_test.dart: a map move reaches the options stream without rebuilding the service
+01:01 +500: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.unloaded for 3 selected photos uses the real action and thumbnail renderer
+01:02 +501: /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: (tearDownAll)
+01:03 +501: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/selection_action_layout_test.dart: selection actions are equal centered cells at Size(320.0, 700.0) textScale=1.0 with safe inset
+01:04 +502: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: renders Share and Download as column buttons, not menu rows
+01:04 +503: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: renders Share and Download as column buttons, not menu rows
+01:04 +504: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: renders Share and Download as column buttons, not menu rows
+01:04 +505: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: renders Share and Download as column buttons, not menu rows
+01:04 +506: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: renders Share and Download as column buttons, not menu rows
+01:04 +507: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: renders Share and Download as column buttons, not menu rows
+01:04 +508: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: offers a share link to a space owner
+01:05 +509: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: offers a share link to a space editor
+01:05 +510: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: does not offer a share link to a space viewer
+01:05 +511: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: scopes the link to the space it was opened from
+01:05 +512: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/space_bottom_sheet_share_link_test.dart: (tearDownAll)
+01:05 +512: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/viewer_control_surface_theme_test.dart: viewer surface follows Brightness.light theme
+01:06 +513: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/viewer_control_surface_theme_test.dart: viewer surface follows Brightness.dark theme
+01:06 +514: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/timeline_compact_selection_test.dart: selection exposes a real delete action for localOnly=true
+01:07 +515: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart: identical two-action trash capsule Brightness.dark en width=320.0 scale=1.0
+01:07 +516: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart: identical two-action trash capsule Brightness.dark en width=320.0 scale=1.0
+01:08 +517: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart: identical two-action trash capsule Brightness.dark en width=320.0 scale=2.0
+01:09 +518: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart: identical two-action trash capsule Brightness.dark en width=393.0 scale=1.0
+01:09 +519: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart: identical two-action trash capsule Brightness.dark en width=393.0 scale=2.0
+01:09 +520: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:09 +521: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:09 +522: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:09 +523: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:09 +524: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:09 +525: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:09 +526: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:10 +527: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:10 +528: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:10 +529: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:10 +530: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:10 +531: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:10 +532: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide two-years-ago waits for acknowledgement and removes lane/list
+01:10 +533: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart: trash viewer=false preserves confirmation and cancellation before irreversible call
+01:10 +534: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: delete two-years-ago waits for acknowledgement and removes lane/list
+01:10 +535: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: delete two-years-ago waits for acknowledgement and removes lane/list
+01:11 +536: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: delete two-years-ago waits for acknowledgement and removes lane/list
+01:11 +537: /workspace/gallery/mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart: trash restore viewer=true invokes only restore once while pending
+01:11 +538: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: hide AI highlight waits for acknowledgement and removes lane/list
+01:11 +539: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: delete AI highlight waits for acknowledgement and removes lane/list
+01:11 +540: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: cancel deletion keeps the memory and resumes playback
+01:11 +541: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: dismissing the menu resumes without making a request
+01:11 +542: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: failed request preserves lane/list and shows an error
+01:11 +543: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_actions_test.dart: shared Space memories do not expose owner-only destructive actions
+01:11 +544: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_bottom_info_test.dart: memoryAssetForPage returns the asset on the requested page
+01:11 +545: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_bottom_info_test.dart: memoryAssetForPage returns the first asset for page zero
+01:11 +546: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_bottom_info_test.dart: memoryAssetForPage clamps a page past the end to the last asset
+01:11 +547: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_bottom_info_test.dart: memoryAssetForPage clamps a negative page to the first asset
+01:12 +548: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_candidates_test.dart: save waits for server acknowledgement before removing the card
+01:13 +549: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_candidates_test.dart: save waits for server acknowledgement before removing the card
+01:13 +550: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_candidates_test.dart: save waits for server acknowledgement before removing the card
+01:13 +551: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_candidates_test.dart: dismiss waits for server acknowledgement before removing the card
+01:14 +552: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_candidates_test.dart: later waits for server acknowledgement before removing the card
+01:14 +553: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_photo_test.dart: (setUpAll)
+01:14 +553: /workspace/gallery/mobile/test/presentation/widgets/memory/memory_photo_test.dart: double tap zoom pauses paging; reset restores paging and tap navigation
+01:15 +554: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 local selection is content sized Brightness.dark font 1.0
+01:15 +555: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 local selection is content sized Brightness.dark font 1.0
+01:15 +556: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 local selection is content sized Brightness.dark font 1.0
+01:16 +557: /workspace/gallery/mobile/test/presentation/widgets/spaces/space_album_bottom_sheet_test.dart: canEdit:true — has Download, Share, and RemoveFromAlbum buttons
+01:16 +558: /workspace/gallery/mobile/test/presentation/widgets/spaces/space_album_bottom_sheet_test.dart: canEdit:true — has Download, Share, and RemoveFromAlbum buttons
+01:16 +559: /workspace/gallery/mobile/test/presentation/widgets/spaces/space_album_bottom_sheet_test.dart: canEdit:true — has Download, Share, and RemoveFromAlbum buttons
+01:17 +560: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 album selection is content sized Brightness.dark font 2.0
+01:17 +561: /workspace/gallery/mobile/test/presentation/widgets/spaces/space_album_bottom_sheet_test.dart: canEdit:false — has Download and Share but NO RemoveFromAlbum button
+01:17 +562: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 timeline selection is content sized Brightness.dark font 1.0
+01:17 +563: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 timeline selection is content sized Brightness.dark font 1.0
+01:17 +564: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 timeline selection is content sized Brightness.dark font 2.0
+01:17 +565: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 memory card paints no grey backing or shadow Brightness.dark
+01:17 +566: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 local selection is content sized Brightness.light font 1.0
+01:17 +567: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 local selection is content sized Brightness.light font 2.0
+01:17 +568: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 album selection is content sized Brightness.light font 1.0
+01:17 +569: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 album selection is content sized Brightness.light font 2.0
+01:17 +570: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 timeline selection is content sized Brightness.light font 1.0
+01:17 +571: /workspace/gallery/mobile/test/presentation/widgets/build39_ui_hotfix_test.dart: Build39 timeline selection is content sized Brightness.light font 2.0
+01:18 +572: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=false reduced=false for 1 selected photos
+01:18 +573: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=false reduced=false for 1 selected photos
+01:18 +574: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=false reduced=false for 1 selected photos
+01:18 +575: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=false reduced=false for 3 selected photos
+01:18 +576: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=false reduced=true for 1 selected photos
+01:18 +577: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=false reduced=true for 3 selected photos
+01:18 +578: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=true reduced=false for 1 selected photos
+01:18 +579: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=true reduced=false for 3 selected photos
+01:18 +580: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=true reduced=true for 1 selected photos
+01:18 +581: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: effects=true reduced=true for 3 selected photos
+01:18 +582: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: live off cancels pending pixels and stale ACK cannot resurrect them; on works without restart
+01:19 +583: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: intake feedback happens once after confirmed swallowing, never pending or cancelled
+01:19 +584: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: decoded pixels are captured once and retained through every flight phase
+01:19 +585: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: (setUpAll)
+01:19 +585: /workspace/gallery/mobile/test/presentation/widgets/deletion/ghost_trap_test.dart: an undecoded image cannot become a successful photo flight
+01:19 +586: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: intake occludes opaque photo pixels behind the front wall before disappearance
+01:19 +587: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: intake occludes opaque photo pixels behind the front wall before disappearance
+01:19 +588: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: intake occludes opaque photo pixels behind the front wall before disappearance
+01:19 +589: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: intake occludes opaque photo pixels behind the front wall before disappearance
+01:19 +590: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: intake occludes opaque photo pixels behind the front wall before disappearance
+01:19 +591: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: intake occludes opaque photo pixels behind the front wall before disappearance
+01:19 +592: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: real toolbar Brightness.dark captures all phases without moving its label or hit region
+01:20 +593: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: real toolbar Brightness.dark captures all phases without moving its label or hit region
+01:20 +594: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: real toolbar Brightness.dark captures all phases without moving its label or hit region
+01:20 +595: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: real toolbar Brightness.dark captures all phases without moving its label or hit region
+01:20 +596: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: real toolbar Brightness.dark captures all phases without moving its label or hit region
+01:20 +597: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: real toolbar Brightness.dark captures all phases without moving its label or hit region
+01:20 +598: /workspace/gallery/mobile/test/presentation/widgets/images/cache_aware_listener_tracker_mixin_test.dart: CacheAwareListenerTrackerMixin with Real ImageCache Listener misidentification: new listener after cache eviction is not treated as cache
+01:20 +599: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: real toolbar Brightness.light captures all phases without moving its label or hit region
+01:20 +600: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: real toolbar Brightness.light captures all phases without moving its label or hit region
+01:20 +601: /workspace/gallery/mobile/test/presentation/widgets/deletion/trash_eats_visual_test.dart: (tearDownAll)
+01:21 +601: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalImageRequest timeline dimensions wide subpixel axis remains a bounded thumbnail request
+01:21 +602: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalImageRequest timeline dimensions tall subpixel axis remains a bounded thumbnail request
+01:21 +603: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalImageRequest timeline dimensions Size.zero preserves the full viewer original-size sentinel
+01:21 +604: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize normal
+01:21 +605: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize missing dimensions
+01:21 +606: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize invalid dimensions
+01:21 +607: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize long final preview
+01:21 +608: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize long first preview
+01:21 +609: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize ultra-thin preview
+01:21 +610: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize small source
+01:21 +611: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize at limit
+01:21 +612: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider.previewTargetSize over limit
+01:21 +613: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider equality uses dimensions in the cache key
+01:21 +614: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalThumbProvider caching aspect-correct face thumbnail does not reuse a pre-cropped square decode
+01:21 +615: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalThumbProvider caching editing on device re-renders the thumbnail
+01:21 +616: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalThumbProvider caching an unchanged thumbnail still comes from the cache
+01:21 +617: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalThumbProvider caching re-renders while the checksum is still being recomputed
+01:21 +618: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalThumbProvider caching stays cached while the checksum is missing
+01:21 +619: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: factories thumbnails are keyed by the asset checksum
+01:21 +620: /workspace/gallery/mobile/test/presentation/widgets/images/local_image_provider_test.dart: LocalFullImageProvider caching editing on device re-renders the full image
+01:21 +621: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: (setUpAll)
+01:21 +621: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic cover does not inherit screenshot or separated-face contain fallback
+01:21 +622: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic retains safe face alignment when the face fits a cover crop
+01:21 +623: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic decode request covers the viewport rather than using a smaller contain decode
+01:21 +624: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic paints all four cell edges from a real Size(100.0, 200.0) image
+01:22 +625: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic paints all four cell edges from a real Size(100.0, 200.0) image
+01:22 +626: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic paints all four cell edges from a real Size(100.0, 200.0) image
+01:22 +627: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic paints all four cell edges from a real Size(100.0, 200.0) image
+01:22 +628: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic paints all four cell edges from a real Size(100.0, 200.0) image
+01:22 +629: /workspace/gallery/mobile/test/presentation/widgets/images/remote_image_provider_http_test.dart: immediate offline preview failure cannot discard a slower durable thumbnail
+01:22 +630: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic paints all four cell edges from a real Size(200.0, 100.0) image
+01:22 +631: /workspace/gallery/mobile/test/presentation/widgets/images/remote_image_provider_http_test.dart: a delayed smaller thumbnail cannot replace an already decoded preview
+01:22 +632: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: legacy edge-preserving thumbnail retains contain while mosaic repaints without reloading
+01:22 +633: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: legacy edge-preserving thumbnail retains contain while mosaic repaints without reloading
+01:22 +634: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: legacy edge-preserving thumbnail retains contain while mosaic repaints without reloading
+01:22 +635: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: legacy edge-preserving thumbnail retains contain while mosaic repaints without reloading
+01:22 +636: /workspace/gallery/mobile/test/presentation/widgets/images/remote_image_provider_http_test.dart: a 404 is not cached as a successful image and a later restore/resync can retry the same URL
+01:22 +637: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic screenshot fills its cell with a bounded existing thumbnail request
+01:22 +638: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic screenshot fills its cell with a bounded existing thumbnail request
+01:22 +639: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic screenshot fills its cell with a bounded existing thumbnail request
+01:23 +640: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: active motion and still use the same filled framing and bounded decode requirement
+01:23 +641: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: mosaic selection changes only the overlay, preserving image bounds, state and square inner corners
+01:23 +642: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: locked mosaic selection also keeps the complete image geometry
+01:23 +643: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: legacy thumbnail selection keeps its existing inset outside the mosaic
+01:23 +644: /workspace/gallery/mobile/test/presentation/widgets/images/mosaic_thumbnail_test.dart: (tearDownAll)
+01:23 +644: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: (setUpAll)
+01:24 +644: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: thumbnail source revisions reflect synchronized changes without depending on object creation
+01:24 +645: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +646: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +647: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +648: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +649: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +650: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +651: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +652: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +653: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +654: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +655: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +656: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +657: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +658: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +659: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +660: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: failed remote URL retries once on a new sync revision and never on an ordinary rerender
+01:24 +661: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: offline thumbnail retries once on reconnection without metadata or scroll changes
+01:25 +662: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: recycled tile clears previous pixels when its source becomes absent
+01:25 +663: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: recycled tile clears previous pixels when its source becomes pending
+01:25 +664: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: (setUpAll)
+01:25 +664: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_face_framing_widget_test.dart: known top face repaints into view using the same decoded PNG and Thumbnail state
+01:25 +665: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target
+01:25 +666: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target
+01:25 +667: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target
+01:25 +668: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target
+01:25 +669: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target
+01:25 +670: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target
+01:25 +671: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target
+01:25 +672: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: autoplay overlays the real thumbnail while retaining its Hero, stack count and tap target
+01:26 +673: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: long press keeps normal selection decoration and badge while stopping motion
+01:26 +674: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: motion thumbnails outside the main timeline scope stay static
+01:26 +675: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: server-only Live Photo previews its known pair without resolving a local source
+01:26 +676: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: a merged still without its local video stays a normal clickable thumbnail
+01:26 +677: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: ordinary AssetType.image thumbnails keep their static grid and tap behavior
+01:26 +678: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: ordinary AssetType.video thumbnails keep their static grid and tap behavior
+01:26 +679: /workspace/gallery/mobile/test/presentation/widgets/images/thumbnail_live_photo_test.dart: (tearDownAll)
+01:26 +679: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: (setUpAll)
+01:27 +679: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +680: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +681: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +682: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +683: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +684: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +685: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +686: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +687: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +688: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +689: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +690: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +691: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +692: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +693: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +694: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +695: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +696: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +697: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +698: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +699: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +700: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +701: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +702: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +703: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +704: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +705: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +706: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:27 +707: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: persisted stack link: 1 active frame is a normal photo; restore makes 2 again
+01:28 +708: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: high-DPR Size(4000.0, 6000.0) remote still chooses preview and sends bounded physical decode dimensions
+01:28 +709: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: high-DPR Size(6000.0, 4000.0) remote still chooses preview and sends bounded physical decode dimensions
+01:28 +710: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: remote panorama decode remains bounded rather than following its cover overscan
+01:28 +711: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: small square remote tile retains the cheaper thumbnail source
+01:28 +712: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: scoped local Size(4000.0, 6000.0) request exceeds 320 and preserves full-source aspect before faces arrive
+01:28 +713: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: scoped local Size(6000.0, 4000.0) request exceeds 320 and preserves full-source aspect before faces arrive
+01:28 +714: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: ultra-thin local Size(30000.0, 10.0) preserves positive bounded Pigeon axes
+01:28 +715: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: ultra-thin local Size(10.0, 30000.0) preserves positive bounded Pigeon axes
+01:28 +716: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: ordinary and Live Photo stills use the same scoped quality and canonical source geometry
+01:28 +717: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: real motion FittedBox and still receive matching face-aware framing geometry
+01:28 +718: /workspace/gallery/mobile/test/presentation/widgets/images/timeline_thumbnail_quality_widget_test.dart: real motion uses the shared contain canvas when separated faces cannot fit cover
+01:28 +719: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +720: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +721: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +722: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +723: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +724: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +725: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +726: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +727: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +728: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:29 +729: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=false never produces a false completed flight
+01:30 +730: /workspace/gallery/mobile/test/unit/presentation/actions/ghost_trap_action_test.dart: real DeleteAction waits for server ACK; rejected=true never produces a false completed flight
+Error (Failed to delete assets): Bad state: synthetic definite rejection
+test/unit/presentation/actions/ghost_trap_action_test.dart 44:11      main.<fn>.<fn>
+package:immich_mobile/presentation/actions/delete.action.dart 369:5   DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:18  DeleteAction._delete
+package:immich_ui/src/components/column_button.dart 48:7              _ImmichColumnButtonState._runAction
+
+01:30 +731: /workspace/gallery/mobile/test/unit/presentation/actions/deletion_snapshot_guard_test.dart: one-many-one while confirmation is visible rejects the whole snapshot
+01:30 +732: /workspace/gallery/mobile/test/unit/presentation/actions/deletion_snapshot_guard_test.dart: one-many-one while confirmation is visible rejects the whole snapshot
+01:32 +733: /workspace/gallery/mobile/test/unit/presentation/actions/deletion_snapshot_guard_test.dart: metadata while confirmation is visible rejects the whole snapshot
+01:32 +734: /workspace/gallery/mobile/test/unit/presentation/actions/deletion_snapshot_guard_test.dart: missing while confirmation is visible rejects the whole snapshot
+01:32 +735: /workspace/gallery/mobile/test/unit/presentation/actions/deletion_snapshot_guard_test.dart: background timeline reload during lookup preserves exact captured IDs
+01:32 +736: /workspace/gallery/mobile/test/unit/presentation/actions/deletion_snapshot_guard_test.dart: selection changing during fresh-row lookup never submits the stale server batch
+01:32 +737: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: effects=false preserves exact 1-item Trash request and Undo
+01:32 +738: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: effects=false preserves exact 1-item Trash request and Undo
+01:33 +739: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +740: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +741: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +742: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +743: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +744: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +745: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +746: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +747: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: the actual local album sheet exposes device removal for local-only selection
+01:34 +748: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: effects=true preserves exact 3-item Trash request and Undo
+01:35 +749: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: mixed success deselects only device copies, retaining a remote-only selection
+01:35 +750: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: effects=true retains confirmation and cancellation for 3 permanent deletions
+01:35 +751: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: partial result retains rejected copies and removes only acknowledged selection
+01:35 +752: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: effects=true retains device consent for 3 local copies
+01:35 +753: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: effects=true retains device consent for 3 local copies
+01:35 +754: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: two button instances cannot start overlapping native cleanup operations
+01:35 +755: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: two button instances cannot start overlapping native cleanup operations
+01:35 +756: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks 3-member cover trashes all server IDs and Undo restores the same set
+01:35 +757: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: a late result after server switching cannot clear the new selection or show success
+01:35 +758: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks 5-member cover trashes all server IDs and Undo restores the same set
+01:35 +759: /workspace/gallery/mobile/test/unit/presentation/actions/local_album_device_deletion_test.dart: closing the action while native consent is pending does not access a disposed ref
+01:35 +760: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks changed expanded membership after lookup cancels the whole deletion
+01:35 +761: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks Undo after server cannot restore captured IDs into a different session
+01:35 +762: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks Undo after logout cannot restore captured IDs into a different session
+01:35 +763: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks failed membership lookup keeps the selection and never trashes only the cover
+Error (Failed to delete assets): Bad state: fixture stack unavailable
+package:mocktail/src/mocktail.dart 249:7                              When.thenThrow.<fn>
+package:mocktail/src/mocktail.dart 131:37                             Mock.noSuchMethod
+test/service.mocks.dart 43:7                                          MockAssetService.resolveStackTrashIds
+package:immich_mobile/presentation/actions/delete.action.dart 231:41  DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23  DeleteAction.create.<fn>
+package:immich_ui/src/components/icon_button.dart 39:19               _ImmichIconButtonState._runAction
+package:immich_ui/src/components/icon_button.dart 47:62               _ImmichIconButtonState._onPressed.<fn>
+package:flutter_test                                                  TestAsyncUtils.guard.<fn>
+test/unit/presentation/actions/delete_action_test.dart 116:5          main.pumpDelete
+test/unit/presentation/actions/delete_action_test.dart 238:9          main.<fn>.<fn>.<fn>
+
+01:36 +764: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks server switch during lookup cannot apply the old selection to the new server
+01:36 +765: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks expanded server IDs never expand the explicitly selected local copies
+01:36 +766: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks viewer primary remains an individual frame even over the main timeline
+01:36 +767: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks viewer child remains an individual frame even over the main timeline
+01:36 +768: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks flat remoteAlbum selection keeps its exact server IDs
+01:36 +769: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks flat map selection keeps its exact server IDs
+01:36 +770: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks flat search selection keeps its exact server IDs
+01:36 +771: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction collapsed main-timeline stacks permanent deletion in Trash never expands into an active sibling
+01:36 +772: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction trash trashes a remote-only owned asset
+01:36 +773: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction trash ignores assets owned by someone else
+01:36 +774: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction trash Gallery-only Trash leaves a backed-up device copy intact
+01:36 +775: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction trash Gallery-only mixed selection trashes only owned server assets
+01:36 +776: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction trash Gallery-only deletion of a backed-up local-album representation preserves the device copy
+01:36 +777: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction trash offers an undo that restores the trashed assets
+01:36 +778: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:36 +779: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +779: /workspace/gallery/mobile/test/unit/presentation/actions/delete_action_test.dart: DeleteAction DeleteEverywhereAction cloud rejection never deletes the only local copy
+Error (Failed to delete assets): Bad state: fixture offline
+package:mocktail/src/mocktail.dart 249:7                              When.thenThrow.<fn>
+package:mocktail/src/mocktail.dart 131:37                             Mock.noSuchMethod
+test/service.mocks.dart 43:7                                          MockAssetService.trash
+package:immich_mobile/presentation/actions/delete.action.dart 369:42  DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:24  DeleteAction._delete
+package:immich_ui/src/components/icon_button.dart 39:7                _ImmichIconButtonState._runAction
+
+01:37 +780: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +781: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +782: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +783: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +784: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +785: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +786: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +787: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +788: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +789: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +790: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +791: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +792: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +793: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +794: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:37 +795: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +796: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +797: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +798: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +799: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +800: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +801: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +802: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +803: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=false
+01:38 +804: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=false grid=true
+01:39 +805: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=true grid=false
+01:40 +806: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: remote album ACK flight/reflow reduced=true grid=true
+01:40 +807: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: local album ACK flight/reflow reduced=false grid=false
+01:40 +808: /workspace/gallery/mobile/test/unit/presentation/actions/album_ghost_trap_test.dart: local album ACK flight/reflow reduced=true grid=false
+01:41 +809: All tests passed!

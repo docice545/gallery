@@ -7,6 +7,7 @@ import 'package:immich_mobile/domain/models/config/app_config.dart';
 import 'package:immich_mobile/domain/models/setting.model.dart';
 import 'package:immich_mobile/domain/services/setting.service.dart';
 import 'package:immich_mobile/domain/services/user.service.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/models/albums/album_search.model.dart';
 import 'package:immich_mobile/presentation/actions/action.dart';
 import 'package:immich_mobile/presentation/actions/action.widget.dart';
@@ -24,6 +25,7 @@ import 'package:immich_mobile/providers/infrastructure/settings.provider.dart' s
 import 'package:immich_mobile/providers/shared_space.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
+import 'package:immich_ui/immich_ui.dart';
 import 'package:mocktail/mocktail.dart';
 // easy_localization initializes shared_preferences internally; tests need the mock initializer.
 // ignore: depend_on_referenced_packages
@@ -31,10 +33,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../fixtures/user.stub.dart';
 import '../../../service.mocks.dart';
+import '../../../unit/factories/remote_asset_factory.dart';
 
-// Download and Share both render as ActionMenuItem after upstream's action-model
-// migration, so match on the wrapped action type — byType(ActionMenuItem) alone
-// could not tell them apart.
+// A real remote selection makes both actions visible; an empty selection must
+// not pass merely because hidden ActionWidgets exist in the tree.
 Finder _actionOfType<T extends ActionBuilder>() => find.byWidgetPredicate((w) => w is ActionWidget && w.action is T);
 
 class _MockUserService extends Mock implements UserService {}
@@ -89,7 +91,14 @@ Widget _wrap(Widget widget, {List<Override> overrides = const []}) {
   return ProviderScope(
     overrides: [
       timelineStateProvider.overrideWith(TimelineStateNotifier.new),
-      multiSelectProvider.overrideWith(MultiSelectNotifier.new),
+      multiSelectProvider.overrideWith(
+        () => MultiSelectNotifier(
+          MultiSelectState(
+            selectedAssets: {RemoteAssetFactory.create(ownerId: UserStub.user1.id)},
+            lockedSelectionAssets: const {},
+          ),
+        ),
+      ),
       settingsProvider.overrideWith(_DefaultSettingsNotifier.new),
       // The sheet now always mounts CollectionPicker (#965 follow-up), which composes
       // AlbumSelector + SpaceCollectionSection; both read live providers this harness has no
@@ -125,6 +134,17 @@ void main() {
 
     expect(_actionOfType<DownloadAction>(), findsOneWidget);
     expect(_actionOfType<ShareAction>(), findsOneWidget);
+    final share = tester.widget<ImmichColumnButton>(
+      find.descendant(of: _actionOfType<ShareAction>(), matching: find.byType(ImmichColumnButton)),
+    );
+    expect(share.label, StaticTranslations.instance.share);
+    expect(share.onPressed, isNotNull);
+    expect(share.onLongPress, isNotNull);
+    final download = tester.widget<ImmichColumnButton>(
+      find.descendant(of: _actionOfType<DownloadAction>(), matching: find.byType(ImmichColumnButton)),
+    );
+    expect(download.label, StaticTranslations.instance.download_to_device);
+    expect(download.onPressed, isNotNull);
     expect(find.byType(RemoveFromAlbumActionButton), findsOneWidget);
   });
 
@@ -134,6 +154,17 @@ void main() {
 
     expect(_actionOfType<DownloadAction>(), findsOneWidget);
     expect(_actionOfType<ShareAction>(), findsOneWidget);
+    final share = tester.widget<ImmichColumnButton>(
+      find.descendant(of: _actionOfType<ShareAction>(), matching: find.byType(ImmichColumnButton)),
+    );
+    expect(share.label, StaticTranslations.instance.share);
+    expect(share.onPressed, isNotNull);
+    expect(share.onLongPress, isNotNull);
+    final download = tester.widget<ImmichColumnButton>(
+      find.descendant(of: _actionOfType<DownloadAction>(), matching: find.byType(ImmichColumnButton)),
+    );
+    expect(download.label, StaticTranslations.instance.download_to_device);
+    expect(download.onPressed, isNotNull);
     expect(find.byType(RemoveFromAlbumActionButton), findsNothing);
   });
 

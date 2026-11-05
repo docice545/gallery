@@ -109,6 +109,43 @@ void main() {
     ).thenAnswer((_) async => manageMediaPermissionGranted);
   });
 
+  group('LocalSyncService - editor copy recovery', () {
+    LocalSyncService withRecovery(Future<void> Function() recover) => LocalSyncService(
+      localAlbumRepository: mockLocalAlbumRepository,
+      trashedLocalAssetRepository: mockTrashedLocalAssetRepository,
+      assetMediaRepository: mockAssetMediaRepository,
+      permissionRepository: mockPermissionRepository,
+      nativeSyncApi: mockNativeSyncApi,
+      recoverEditedCopies: recover,
+    );
+
+    test('no-delta sync still retries known saved copies without scanning albums', () async {
+      var recoveries = 0;
+      final recovery = withRecovery(() async {
+        recoveries++;
+      });
+      await recovery.sync();
+      expect(recoveries, 1);
+      verify(() => mockNativeSyncApi.getMediaChanges()).called(1);
+      verifyNever(() => mockNativeSyncApi.getAlbums());
+      verifyNever(() => mockLocalAlbumRepository.updateAll(any()));
+      verifyNever(() => mockNativeSyncApi.checkpointSync());
+    });
+
+    test('pending copy failure cannot turn a no-delta device sync into a failure', () async {
+      var recoveries = 0;
+      final recovery = withRecovery(() async {
+        recoveries++;
+        throw StateError('copy remains pending for the next sync');
+      });
+      await expectLater(recovery.sync(), completes);
+      expect(recoveries, 1);
+      verify(() => mockNativeSyncApi.getMediaChanges()).called(1);
+      verifyNever(() => mockNativeSyncApi.getAlbums());
+      verifyNever(() => mockAssetMediaRepository.deleteAll(any()));
+    });
+  });
+
   group('LocalSyncService - syncTrashedAssets gating', () {
     test('invokes syncTrashedAssets when Android flag enabled and permission granted', () async {
       await Store.put(StoreKey.manageLocalMediaAndroid, true);

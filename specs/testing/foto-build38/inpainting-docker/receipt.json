@@ -1,0 +1,23 @@
+{
+  "status": "PASS",
+  "syntheticOnly": true,
+  "imageId": "sha256:6b726b20efb421493a55a1e0beeb28221d48c17357bab98d039ec846734c3793",
+  "modelSHA256": "344c77bbcb158f17dd143070d1e789f38a66c04202311ae3a258ef66667a9ea9",
+  "cpuLimit": 2,
+  "memoryLimitGiB": 3,
+  "httpInferenceSeconds": 3.186,
+  "checks": [
+    "auth401",
+    "modelReady",
+    "realHttpInference200",
+    "jpeg480x320",
+    "originalPreserved",
+    "noStore",
+    "unknownCancellationIdempotent",
+    "temporaryFilesCleaned"
+  ],
+  "beforeSHA256": "698a0fa4aaf764fe25e60d1b2a1cb3a517ddad503ebee6796b3ded150129c677",
+  "afterSHA256": "6c6bcd939e01e621b294ffea4d01b2687d6204442a775fa807662abc5a6708a4",
+  "deviceAcceptance": "DEVICE_REQUIRED",
+  "productionChanged": false
+}

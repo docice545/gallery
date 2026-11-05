@@ -51,11 +51,11 @@ use certificate SHA256
 
 The statuses are intentionally split:
 
-| Client | Official artifact obtained | APK/app launched | Backend API smoke | Real client E2E |
-|---|---|---|---|---|
-| Android 5.8.0 | **PASS** — SHA256 and v2 certificate verified | **PENDING HOSTED EMULATOR** | **PASS** — exact-SHA disposable backend smoke at `46e013adaddeddf8d9b358bcd10b5f721270e0ed` | **PENDING** |
-| Android 5.9.0 | **PASS** — SHA256 and v2 certificate verified | **PENDING HOSTED EMULATOR** | **PASS** — exact-SHA disposable backend smoke at `46e013adaddeddf8d9b358bcd10b5f721270e0ed` | **PENDING** |
-| iOS pinned source/TestFlight | **NOT TESTED** — no TestFlight binary is copied into the repository | **PENDING macOS simulator/TestFlight** | **CONTRACT SOURCE PASS; disposable API smoke PASS at exact backend SHA** | **NOT TESTED** |
+| Client                       | Official artifact obtained                                          | APK/app launched                       | Backend API smoke                                                                           | Real client E2E |
+| ---------------------------- | ------------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------- | --------------- |
+| Android 5.8.0                | **PASS** — SHA256 and v2 certificate verified                       | **PENDING HOSTED EMULATOR**            | **PASS** — exact-SHA disposable backend smoke at `46e013adaddeddf8d9b358bcd10b5f721270e0ed` | **PENDING**     |
+| Android 5.9.0                | **PASS** — SHA256 and v2 certificate verified                       | **PENDING HOSTED EMULATOR**            | **PASS** — exact-SHA disposable backend smoke at `46e013adaddeddf8d9b358bcd10b5f721270e0ed` | **PENDING**     |
+| iOS pinned source/TestFlight | **NOT TESTED** — no TestFlight binary is copied into the repository | **PENDING macOS simulator/TestFlight** | **CONTRACT SOURCE PASS; disposable API smoke PASS at exact backend SHA**                    | **NOT TESTED**  |
 
 The local worker has no Android SDK/emulator command or KVM/VMX/SVM
 acceleration, so it cannot install or exercise the APKs here. The repository

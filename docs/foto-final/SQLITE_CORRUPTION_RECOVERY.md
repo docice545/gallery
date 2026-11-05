@@ -1,36 +1,59 @@
-# `SQLITE_CORRUPTION_RECOVERY` release gate
+# SQLite recovery validation for Build 22
 
-Status: **SOURCE FIX / FLUTTER AND DEVICE RUNTIME PENDING**.
+Status: **PASS (Cloud regression tests); physical-device recovery remains open**.
+The primary `immich.sqlite` database is a user-data boundary. Corruption,
+`SQLITE_NOTADB`, I/O and full-disk failures stop unsafe sync writes and ACKs;
+there is no automatic reset, deletion, replacement or promotion.
 
-The primary `immich.sqlite` database is a user-data boundary. Startup still
-runs a health probe and stops unsafe writes on corruption, `SQLITE_NOTADB`, I/O
-and full-disk errors. It does not call `Drift.reset()`, delete the database,
-clear the app, or retry a failing sync forever.
+`captureSqliteRecoverySnapshot` copies the primary and existing WAL/SHM files
+into a new directory. It checks size/mtime around the copy, retries primary
+changes, and records changing/disappearing sidecars as omitted evidence.
+An absent sidecar is distinguished from a lost sidecar using `FileStat.type`.
+A sidecar that appears during capture is also recorded as omitted. Capture is
+best-effort evidence, not a guarantee that every captured directory is usable
+for recovery. Keep the original database and all sidecars together.
 
-`captureSqliteRecoverySnapshot` creates a timestamped staging directory and
-copies the primary database together with existing `-wal` and `-shm` sidecars.
-It compares source file size and modification time before and after copying,
-deletes only an incomplete staging directory, and atomically renames a stable
-snapshot. A manifest records the reason and file metadata without account
-tokens or media content. The source database and local assets, pending
-uploads/deletions, cursors, album links and settings are never mutated by this
-capture operation.
+Before SQLite opens a diagnostic copy, recovery verifies the manifest version,
+file inventory, sizes and absence of omitted sidecars. A nonempty WAL must have
+a valid header, page size, salts and rolling checksums, complete frames and a
+committed tail. This matters because SQLite can ignore a damaged WAL or suffix
+and return `integrity_check = ok` for an older view missing pending operations.
+Ambiguous/recycled or uncommitted WAL tails conservatively require manual
+review, even if SQLite could recover part of them. No evidence is discarded.
 
-Repair is deliberately a separate, user-mediated operation against the
-captured copy. The operator must run `PRAGMA integrity_check` and
-`PRAGMA foreign_key_check`, then use a targeted `REINDEX` only when the
-diagnosis proves an index-only failure. A page/WAL failure requires SQLite
-`.backup`/`.recover` into a new file and record comparison before any future
-explicit replacement. No partially recovered file is promoted automatically.
+A proven index-only failure is repaired with named `REINDEX` operations on a
+separate candidate. `integrity_check`, `foreign_key_check` and table-content
+fingerprints must agree before it is reported as repaired. Every receipt keeps
+`promotionAllowed=false`; validation never replaces the primary. Page damage,
+incomplete evidence and invalid WALs produce `requiresManualRecovery` with no
+repair candidate. The operator must preserve the original evidence and compare
+pending uploads/deletions, cursors, settings and row contents before any
+separately approved recovery. `.recover` success alone is not proof of no loss.
 
-Evidence:
+## Regression evidence
 
-- `mobile/lib/data/db/sqlite_health.dart`
-- `mobile/test/data/db/sqlite_health_test.dart` (sidecars, stable source,
-  missing primary)
-- `mobile/lib/data/data_controller.dart` (unsafe-write startup stop)
+The continuation reproduced two bugs before fixing them: absent WAL/SHM files
+were incorrectly marked as omitted, and missing, truncated or checksum-damaged
+WALs could be certified healthy. The tests use real SQLite files and committed
+WAL-only pending rows; the primary database and WAL bytes remain unchanged.
 
-The remaining runtime matrix is not claimed as passed: corrupt index/page/WAL,
-truncated write, low storage, crash during recovery, cold restart, account
-switch, Trash/Restore, and offline warmup/process death all require hosted
-Flutter/Android execution and a Samsung replay where available.
+```bash
+cd mobile
+flutter analyze --no-pub
+flutter test --no-pub \
+  test/data/db/sqlite_health_test.dart \
+  test/data/db/sqlite_recovery_test.dart \
+  test/infrastructure/repositories/sqlite_sync_recovery_test.dart \
+  test/infrastructure/repositories/sqlite_sync_recovery_file_test.dart
+```
+
+All 15 tests passed locally with pinned Flutter 3.47.2. They cover healthy
+snapshots, malformed pages, missing/truncated/damaged WAL, complete WAL-only
+pending rows, real `SQLITE_CORRUPT_INDEX` 779, pending uploads/deletions during
+copy-only index repair, and `updateAssetsV2` rollback/cursor preservation/replay.
+The same four files run with strict exit propagation in the compatibility
+workflow. See [release gates](RELEASE_GATES.md) for exact-revision CI lookup.
+
+Power loss, low storage, device cold restart/account switching, real Android
+SQLite behavior and the operator's backup/restore procedure still require
+Samsung/HP acceptance. No physical database was opened in Cloud.

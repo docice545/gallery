@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const read = (path: string) => JSON.parse(readFileSync(resolve(import.meta.dirname, '../../..', path), 'utf8'));
+const readText = (path: string) => readFileSync(resolve(import.meta.dirname, '../../..', path), 'utf8');
 
 const api = read('open-api/immich-openapi-specs.json');
 const gate = read('server/test/contracts/original-noodle-gallery-compatibility.json');
@@ -27,6 +28,16 @@ describe('original Noodle Gallery compatibility gate', () => {
     for (const { method, path } of gate.apiOperations) {
       expect(api.paths[path]?.[method], `${method.toUpperCase()} ${path}`).toBeDefined();
     }
+  });
+
+  it('builds the disposable compatibility backend with the Gallery release version', () => {
+    const compose = readText('e2e/docker-compose.yml');
+
+    // The package.json fallback is the upstream development version (3.2.0),
+    // while unchanged Noodle 5.8/5.9 clients reject a server more than one
+    // major version behind. The Dockerfile supports stamping the real Gallery
+    // release version via BUILD_VERSION; keep this gate tied to that input.
+    expect(compose).toMatch(/- BUILD_VERSION=5\.7\.3\b/);
   });
 
   it('keeps PR #7 compatibility work attached to the integration line', () => {

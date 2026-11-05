@@ -1,0 +1,26 @@
+{
+  "audited_commit": "010a7a6675d68dbfba5a457e6199cbb87516279a",
+  "branch": "codex/foto-build38-unified-16",
+  "runtime_diff": "empty",
+  "files": {
+    "mobile/lib/presentation/widgets/asset_viewer/viewer_top_app_bar.widget.dart": "a1714e6827f824f0d33b3e571d27ccddd61ac8beb3e711eb5fdad7e6ca7f4e95",
+    "mobile/lib/presentation/widgets/asset_viewer/asset_viewer.page.dart": "1f59f5c7aee5afa7a8173d8716e6e88da7a006b566231f29d95fd8a42bdadbfc",
+    "mobile/lib/presentation/widgets/asset_viewer/viewer_bottom_app_bar.widget.dart": "c62a0355b7ece03387919ac48cdf1bf9ef9af9c7bf3b48769903c8d2ec4756b5",
+    "mobile/lib/presentation/widgets/asset_viewer/bottom_bar.widget.dart": "159d72559b12fe31228c19a67b3ad46592957e92a368fe591b0f6a46b180323f",
+    "mobile/lib/presentation/widgets/asset_viewer/viewer_control_surface.dart": "418d75f2ddcd568c69ec5d80c48974c329c957679bb60fa80d04ebf1738c81c6",
+    "mobile/lib/presentation/widgets/asset_viewer/viewer_kebab_menu.widget.dart": "5f86dec089a750bad581b27f0e3a1d1094953df892435f92b5bfe0446999dcd0",
+    "mobile/lib/presentation/widgets/bottom_sheet/action_cell_grid.dart": "c75b8b5dc9cc2c3ba0e3ee8bcbbcdbab6c61d975fe021bc5da34da4190a7e79e",
+    "mobile/lib/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart": "f8c151cb5913b7356141dd62edc9a3fde27c25af9dee8afd81a68be660a4c2f2",
+    "mobile/lib/presentation/actions/google_lens.action.dart": "0bf8f328de161302c9f22509f92062b750b83f4f1356f9dd46ff1e4ce9c1311b",
+    "mobile/lib/presentation/actions/upload.action.dart": "f6512c42c123604d28561f606dcb860d614cd217ecf734b1a52ab01a46eb8040",
+    "mobile/test/presentation/widgets/asset_viewer/viewer_action_bars_audit_test.dart": "125e0e9ad3f218509c4d2bfbbb58cf2e52285c34e04ff46060b7f7033ade9535",
+    "mobile/test/presentation/widgets/asset_viewer/viewer_menu_access_audit_test.dart": "52b21879dc3b9e522f7fe6967ac58b0839616cf370323e15cd2dbbd191db9d34",
+    "mobile/test/presentation/widgets/asset_viewer/unified_action_bars_test.dart": "72b3761f3a145d2d6f886f08b03245eb33e0ddf81b134607a12b0fa567145c9e",
+    "mobile/test/presentation/widgets/bottom_sheet/unified_action_shell_test.dart": "28eac688a6f213da60f526f1e454344f9e017e97ec2f371aebfb1aa4577e453f",
+    "mobile/test/presentation/widgets/bottom_sheet/trash_action_bar_test.dart": "e68f33a1c57b8f652f4be4d60a500aa60af41484c92c00cbc56c955fdb68c67d",
+    "mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart": "8f16d967f8461335f64280dab7011a168a31620a101d4b211095752c77b289ce",
+    "mobile/test/unit/presentation/actions/google_lens_action_test.dart": "753f2edc9f4b199db3a14ea861beccaa5b059d5a664b7397d7503394a959d0d0",
+    "mobile/test/unit/presentation/actions/upload_action_test.dart": "5314458ec78aa8d56391aaf9aa415864d9da0c9aca3aa6464dc050355b6d457a",
+    "mobile/analysis_options.yaml": "760cfbf697b85860a27937fb275e3871b5e286ede1b3f8bbb4a4963f7c124852"
+  }
+}

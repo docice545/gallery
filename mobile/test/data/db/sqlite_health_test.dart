@@ -1,9 +1,43 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/sqlite_health.dart';
+import 'package:sqlite3/common.dart';
 
 void main() {
+  setUp(() {
+    SqliteRecoveryGate.clearAfterValidatedRecovery();
+  });
+
+  tearDown(() {
+    SqliteRecoveryGate.clearAfterValidatedRecovery();
+  });
+
+  test('classifies SQLite SQLITE_CORRUPT_INDEX 779 as unsafe corruption', () {
+    expect(classifySqliteResultCode(779), SqliteHealthFailure.corrupt);
+    final error = SqliteException(extendedResultCode: 779, message: 'corrupt index');
+    expect(error.resultCode, SqlError.SQLITE_CORRUPT);
+    expect(classifySqliteFailure(error), SqliteHealthFailure.corrupt);
+  });
+
+  test('holds sync after SQLITE_CORRUPT_INDEX until validated recovery clears it', () {
+    SqliteRecoveryGate.markRequired(check: 'updateAssetsV2[user]', resultCode: 779);
+
+    expect(SqliteRecoveryGate.isHalted, isTrue);
+    expect(SqliteRecoveryGate.check, 'updateAssetsV2[user]');
+    expect(SqliteRecoveryGate.resultCode, 779);
+    expect(
+      () => SqliteRecoveryGate.throwIfRequired('remote sync'),
+      throwsA(isA<SqliteDatabaseUnhealthy>().having((error) => error.cause, 'cause', 779)),
+    );
+
+    // Only the explicit, user-mediated recovery path may release the barrier.
+    SqliteRecoveryGate.clearAfterValidatedRecovery();
+    expect(SqliteRecoveryGate.isHalted, isFalse);
+    expect(() => SqliteRecoveryGate.throwIfRequired('remote sync'), returnsNormally);
+  });
+
   test('captures database and WAL/SHM sidecars without changing source', () async {
     final source = await Directory.systemTemp.createTemp('foto-sqlite-source-');
     final output = await Directory.systemTemp.createTemp('foto-sqlite-snapshots-');
@@ -53,12 +87,11 @@ void main() {
     final snapshot = await captureSqliteRecoverySnapshot(database: database, outputDirectory: output);
     expect(snapshot.files, hasLength(1));
     expect(File('${snapshot.directory.path}/immich.sqlite-wal').existsSync(), isFalse);
+    final manifest = jsonDecode(await snapshot.manifest.readAsString()) as Map<String, dynamic>;
+    expect(manifest['omittedSidecars'], isNull, reason: 'Absent sidecars are not lost evidence');
 
     await expectLater(
-      captureSqliteRecoverySnapshot(
-        database: File('${source.path}/missing.sqlite'),
-        outputDirectory: output,
-      ),
+      captureSqliteRecoverySnapshot(database: File('${source.path}/missing.sqlite'), outputDirectory: output),
       throwsA(isA<SqliteRecoveryCaptureException>()),
     );
   });

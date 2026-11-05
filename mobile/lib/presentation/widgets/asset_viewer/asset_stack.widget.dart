@@ -22,7 +22,7 @@ class AssetStackRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (stack.isEmpty) {
+    if (stack.length < 2) {
       return const SizedBox.shrink();
     }
 

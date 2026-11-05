@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Fresh disposable CI database/storage only. Never accepts an HP/remote API URL."""
+"""Fresh disposable database/storage only. Never accepts an existing/remote API URL.
+
+Outside CI, --local-disposable-lab explicitly enables the same synthetic lab on
+the local Docker daemon (including HP). No production paths, database, secrets
+or container names can be supplied. Existing containers are never adopted.
+"""
 import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -25,6 +30,7 @@ POSTGRES = 'ghcr.io/immich-app/postgres:14-vectorchord0.4.3@sha256:dbf18b3ffea4a
 ROOT = Path(__file__).resolve().parents[2]
 LAB_MARKER = 'SYNTHETIC_DISPOSABLE_CI_LAB_NOT_PRODUCTION_RECOVERY'
 LAB_TRUST = '/run/gallery-smoke-lab-recovery'
+_local_disposable_lab = False
 ROLLBACK_SOURCE = '81867689be4d773473b6a3f417eee16c0329231e'
 ROLLBACK_ARCHIVE_SHA = 'd0e9e46997df44e6fe5bcb614608672b7e3bec3a6ab8667f440583337f27a45a'
 ROLLBACK_IMAGE = 'sha256:0f9e791e36ce747a02b53827122e514277b0195ef2ec43e64d2b7eaaa0238ab2'
@@ -58,7 +64,7 @@ process.stdout.write(JSON.stringify(await collectRootIdentities(roots)));
 
 
 def require_lab():
-    if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1':
+    if not _local_disposable_lab and (os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1'):
         raise RuntimeError('EXPLICIT_DISPOSABLE_CI_LAB_REQUIRED')
 
 
@@ -276,8 +282,19 @@ def ordinary_managed_smoke(request, asset_id, media):
     request('/assets/managed-deletion-consent', 'PUT', {'enabled': True, 'confirmed': True})
     assert request('/assets/managed-deletion-policy') == {'enabled': True, 'prepared': True, 'canPrepare': False}
     result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-    assert result == [{'id': asset_id, 'scope': 'managed', 'state': 'complete'}]
-    assert request('/assets/' + asset_id + '/deletion-status') == {'id': asset_id, 'state': 'complete'}
+    if result != [{'id': asset_id, 'scope': 'managed', 'accepted': True, 'state': 'complete'}]:
+        # Preserve the strict completion gate, but expose fixed state/code
+        # diagnostics so a real worker failure can be distinguished from an
+        # in-flight receipt without printing IDs, paths or credentials.
+        rows = result if isinstance(result, list) else []
+        states = [row.get('state') if row.get('state') in
+                  ('complete', 'pending', 'blocked', 'failed') else 'unknown'
+                  for row in rows if isinstance(row, dict)]
+        codes = [row.get('code') if isinstance(row.get('code'), str) and
+                 re.fullmatch('[A-Z0-9_]{1,80}', row['code']) else 'UNKNOWN'
+                 for row in rows if isinstance(row, dict)]
+        raise RuntimeError('MANAGED_DELETION_NOT_COMPLETE states=' + ','.join(states) + ' codes=' + ','.join(codes))
+    assert request('/assets/' + asset_id + '/deletion-status') == {'id': asset_id, 'accepted': True, 'state': 'complete'}
     return result
 
 
@@ -368,7 +385,8 @@ const {getKyselyConfig}=await import('file:///usr/src/app/server/dist/utils/data
 let input='';for await(const part of process.stdin)input+=part;
 const data=JSON.parse(input),config=new ConfigRepository().getEnv();
 if(config.storage.mediaLocation!=='/data')throw new Error('DISPOSABLE_STORAGE_REQUIRED');
-const root='/data/build11-external-ci',file=root+'/synthetic.png';
+// External library roots must be outside the managed upload tree.
+const root='/tmp/gallery-build38-external-ci',file=root+'/synthetic.png';
 if(data.action==='writeExternal'){
   await fs.mkdir(root,{recursive:true,mode:0o700});
   await fs.writeFile(file,Buffer.from(data.media,'base64'),{flag:'wx',mode:0o600});
@@ -436,7 +454,7 @@ def external_smoke(request, server, owner):
     assert denied == [{'id': asset_id, 'scope': scope, 'state': 'blocked', 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'}]
     request('/assets/library-deletion-consent/' + scope, 'PUT', {'enabled': True, 'confirmed': True})
     result = request('/assets/permanent-deletion', 'POST', {'ids': [asset_id], 'confirmed': True})
-    assert result == [{'id': asset_id, 'scope': scope, 'state': 'complete'}]
+    assert result == [{'id': asset_id, 'scope': scope, 'accepted': True, 'state': 'complete'}]
     assert storage_fixture(server, 'fileGone') is True
     assert storage_fixture(server, 'externalIds', scope=scope) == []
     # Exercise the actual compiled external-scan admission query, rather than
@@ -477,26 +495,32 @@ def docker(*args, input=None):
 
 
 def main():
-    if os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1':
-        print('FAIL only runs on an explicitly isolated GitHub runner; no containers touched')
+    global _local_disposable_lab
+    arguments = sys.argv[1:]
+    local = bool(arguments and arguments[0] == '--local-disposable-lab')
+    if local:
+        arguments = arguments[1:]
+    if not local and (os.environ.get('GITHUB_ACTIONS') != 'true' or os.environ.get('GALLERY_ISOLATED_CI') != '1'):
+        print('FAIL isolated CI or explicit --local-disposable-lab required; no containers touched')
         return 1
-    if len(sys.argv) not in (3, 4):
+    if len(arguments) not in (2, 3):
         print('FAIL exact source SHA and existing artifact directory, optional pinned rollback directory required')
         return 1
-    sha, output = sys.argv[1:3]
-    rollback_directory = Path(sys.argv[3]) if len(sys.argv) == 4 else None
+    sha, output = arguments[:2]
+    rollback_directory = Path(arguments[2]) if len(arguments) == 3 else None
     directory = Path(output)
     names = []
     network = None
     lab = None
     stage = 'verify committed artifact identity'
     try:
+        _local_disposable_lab = local
         manifest, expected_version = verify_artifact(directory, sha)
         keys = lab_keys()
         lab = tempfile.TemporaryDirectory(prefix='gallery-smoke-lab-')
         trust = Path(lab.name)
         trust_arguments = prepare_lab_store(trust, keys['publicKey'])
-        print('CI free runner disk bytes:', shutil.disk_usage(directory).free, flush=True)
+        print('Disposable lab free disk bytes:', shutil.disk_usage(directory).free, flush=True)
         prefix = 'gallery-trash-ci-' + secrets.token_hex(6)
         network = docker('network', 'create', prefix)
         db, redis, server = (prefix + '-' + name for name in ('pg', 'redis', 'server'))
@@ -535,6 +559,8 @@ def main():
                 headers['Authorization'] = 'Bearer ' + token
             body = data if isinstance(data, bytes) else None if data is None else json.dumps(data).encode()
             with opener.open(urllib.request.Request(base + path, body, headers, method=method), timeout=10) as response:
+                if method == 'HEAD':
+                    return {'status': response.status, 'contentLength': int(response.headers.get('Content-Length', '0'))}
                 body = response.read()
                 return body if raw else json.loads(body) if body else None
 
@@ -558,6 +584,8 @@ def main():
         asset_id = upload_synthetic(request, media)
         original = request(f'/assets/{asset_id}/original', raw=True)
         assert original == media
+        assert request(f'/assets/{asset_id}/original?edited=false', 'HEAD') == {'status': 200, 'contentLength': len(media)}
+        print('PASS authenticated unedited original HEAD availability and byte length for free-space verification')
         before = request('/assets/' + asset_id)
         request('/assets', 'DELETE', {'ids': [asset_id], 'force': False})
         assert request('/assets/' + asset_id)['isTrashed'] is True
@@ -613,6 +641,7 @@ def main():
         manifest['isolatedRecoveryEvidence'] = {'testOnly': True, 'marker': LAB_MARKER,
                                                'productionRecoveryVerified': False, 'productionAuthorization': False}
         manifest['isolatedWorkerConfiguration'] = 'API_AND_MICROSERVICES'
+        manifest['isolatedExecutionEnvironment'] = 'LOCAL_DISPOSABLE_LAB' if local else 'GITHUB_ACTIONS'
         manifest['thumbnailPreviewVerification'] = 'PASS_SYNTHETIC_FILES_AND_HTTP'
         manifest['isolatedExternalDeletion'] = external_result
         manifest['rollbackVerification'] = 'NOT_TESTED_NO_PINNED_ROLLBACK_ARTIFACT'
@@ -698,6 +727,7 @@ def main():
                 print('Diagnostic fixture logs unavailable; primary failure preserved')
         return 1
     finally:
+        _local_disposable_lab = False
         for name in reversed(names):
             try:
                 docker('rm', '-f', '-v', name)

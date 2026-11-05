@@ -1,0 +1,49 @@
+{
+  "abi": "x86_64",
+  "androidApi": 35,
+  "apkMode": "debug",
+  "apkSHA256": "3d034f43d85aea5fd9f950d94acd7b5b5957492e2af35b3b1bd2f7e75e64eb9f",
+  "artifactId": 13401906716,
+  "artifactSHA256": "e1456221655beaf8568f304594e7a50647a292a938d8b1b407e41991a2324526",
+  "attempt": 2,
+  "candidateSource": "e2cc9c001d3f8efd7f1762037e16932c56699d2c",
+  "captures": [
+    {
+      "file": "online.png",
+      "sha256": "d483f9dc19dfb6e73c153193e3ab8c1494779b9bc1064a55ec86c936498c7363",
+      "size": [320, 640],
+      "visuallyReviewed": true
+    },
+    {
+      "file": "offline.png",
+      "sha256": "3b822984421e43c06dcb2d96bd18ae003a03fc5108df6c5eb585176b1fdc0c3a",
+      "size": [320, 640],
+      "visuallyReviewed": true
+    }
+  ],
+  "checkoutContext": "PR merge of candidate into b216af2be0dd5867c45221724f9612afff62abb8",
+  "decodedMarkerCounts": {
+    "offline": [6400, 4560],
+    "online": [6400, 4560]
+  },
+  "firstAttempt": "FAIL: emulator disappeared from ADB at authenticated phase; cause not established. Kept in final receipts.",
+  "limits": [
+    "Two synthetic previously cached server photos; not a large real library.",
+    "Year dragging, local-only cold catalog, reconnect and late-memory anchor are covered by separate Flutter regressions, not by this AVD scenario.",
+    "Does not verify physical Samsung, signed APK upgrade or final photographic quality."
+  ],
+  "logSHA256": "e8a747b2578d16b3cbbdec56e291d2bfee99b627ea64cb3f2732db9c7741f6ba",
+  "run": 41992098090,
+  "samsungAcceptance": "DEVICE_REQUIRED",
+  "scenario": "Synthetic server photos online; force-stop, disable network, relaunch; decoded markers retained offline.",
+  "signedReleaseAcceptance": false,
+  "status": "PASS_REAL_ANDROID_AVD",
+  "syntheticOnly": true,
+  "testedCheckout": "d5d9cf90acc04479f329edb75229dae40cecbfda",
+  "timelineCropComparison": {
+    "bounds": [0, 80, 320, 550],
+    "pixelIdentical": true
+  },
+  "url": "https://github.com/docice545/gallery/actions/runs/41992098090",
+  "visualReview": "Both dated groups (January 2024 / January 2020), magenta/green source markers and tile geometry remain visible. White areas belong to synthetic source images. No grey placeholders in this fixture. Account connectivity indicator changes offline as expected."
+}

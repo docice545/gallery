@@ -598,7 +598,7 @@ export class AssetService extends BaseService {
   }
 
   @OnJob({ name: JobName.AssetDeleteCheck, queue: QueueName.BackgroundTask })
-  async handleAssetDeletionCheck(): Promise<JobStatus> {
+  async handleAssetDeletionCheck(job: JobOf<JobName.AssetDeleteCheck> = {}): Promise<JobStatus> {
     // Retry only committed, owner-scoped intents. Unsealed legacy jobs are not
     // proof of consent and never enter this recovery path.
     for await (const receipt of this.assetRepository.streamPendingDeletions()) {
@@ -611,6 +611,8 @@ export class AssetService extends BaseService {
         },
       });
     }
+    // Bootstrap recovery replays only sealed decisions; it never starts retention deletion.
+    if (job?.resumeOnly) return JobStatus.Success;
     const { trash } = await this.getConfig({ withCache: false });
     if (!trash.enabled || !Number.isFinite(trash.days) || trash.days < 0) return JobStatus.Success;
     const cutoff = new Date(Date.now() - trash.days * 24 * 60 * 60 * 1000);
@@ -789,7 +791,16 @@ export class AssetService extends BaseService {
     // null out representativeFaceId. Those locks are taken in face order, so they can cycle against
     // a concurrent space-people recount. Re-drive the victim rather than lose the deletion (#864).
     try {
-      if (!(await retryOnDeadlock(() => this.assetRepository.removeForDeletion(asset)))) {
+      const removed = await retryOnDeadlock(() =>
+        deleteOnDisk
+          ? this.assetRepository.removeForDeletion(
+              asset,
+              async (paths, isReferenced) =>
+                (await this.deleteDisposableFiles({ files: paths }, isReferenced)) === JobStatus.Success,
+            )
+          : this.assetRepository.removeForDeletion(asset),
+      );
+      if (!removed) {
         // Only the job which actually removes the row owns its file/events/quota
         // effects, even when competing jobs fetched the same deletion snapshot.
         return JobStatus.Skipped;
@@ -843,7 +854,7 @@ export class AssetService extends BaseService {
     // FileDelete receives derivatives only, including for legacy metadata-only cleanup.
 
     const derivatives = files.filter(Boolean);
-    if (derivatives.length > 0) {
+    if (!deleteOnDisk && derivatives.length > 0) {
       await this.jobRepository.queue({ name: JobName.FileDelete, data: { files: derivatives } });
     }
 
@@ -1287,11 +1298,17 @@ export class AssetService extends BaseService {
         }
         scope = await this.assetRepository.getDeletionScope(auth.user.id, id, allowActive);
         if (!scope) throw new DeletionError('ASSET_NOT_IN_TRASH');
+        if (receipt) {
+          // An accepted decision cannot become restorable merely because its
+          // physical retry is currently blocked by storage or policy changes.
+          results.push({ id, scope, authorized: true, code: 'DELETION_ALREADY_ACCEPTED' });
+          continue;
+        }
         const policy =
           scope === 'managed'
             ? await this.ensureManagedStoragePolicy(auth.user.id)
             : await this.assetRepository.getDeletionPolicy(auth.user.id, scope);
-        if (receipt?.state !== 'complete') await this.checkCurrentPolicy(auth.user.id, scope, policy);
+        await this.checkCurrentPolicy(auth.user.id, scope, policy);
         results.push({ id, scope, authorized: true });
       } catch (error) {
         results.push({
@@ -1314,11 +1331,11 @@ export class AssetService extends BaseService {
     const states = await Promise.all(
       targets.map(({ assetId }) => this.assetRepository.getDeletionReceipt(auth.user.id, assetId)),
     );
-    const failed = states.find((item) => item?.state === 'failed');
+    const failed = states.find((item) => item?.state === 'failed' || item?.errorCode);
     if (failed) {
-      return { id, state: 'failed', code: failed.errorCode ?? 'PAIRED_DELETION_INCOMPLETE' };
+      return { id, accepted: true, state: 'failed', code: failed.errorCode ?? 'PAIRED_DELETION_INCOMPLETE' };
     }
-    return { id, state: states.every((item) => item?.state === 'complete') ? 'complete' : 'pending' };
+    return { id, accepted: true, state: states.every((item) => item?.state === 'complete') ? 'complete' : 'pending' };
   }
 
   async deletionBatchStatus(auth: AuthDto, batchId: string): Promise<PermanentDeletionBatchStatusDto> {
@@ -1346,7 +1363,7 @@ export class AssetService extends BaseService {
       const parent = byAsset.get(id);
       if (!parent) return { id, state: 'blocked', code: 'NO_AUTHORIZED_DELETION' };
       const targets = byOperation.get(parent.operationId) ?? [];
-      const failed = targets.find((item) => item.state === 'failed');
+      const failed = targets.find((item) => item.state === 'failed' || item.errorCode);
       if (failed) return { id, state: 'failed', code: failed.errorCode ?? 'PAIRED_DELETION_INCOMPLETE' };
       return {
         id,
@@ -1394,6 +1411,62 @@ export class AssetService extends BaseService {
       await this.jobRepository.cancelAssetDeleteBatch(batchId, auth.user.id);
     }
     return this.deletionBatchStatus(auth, batchId);
+  }
+
+  /** Accept the confirmed snapshot; file work is owned by existing durable workers. */
+  async acceptPermanentDeletion(auth: AuthDto, ids: string[]): Promise<PermanentDeletionResultDto[]> {
+    const uniqueIds = [...new Set(ids)];
+    const previous = await this.assetRepository.getDeletionReceipts(auth.user.id, uniqueIds);
+    const previousById = new Map(previous.map((receipt) => [receipt.assetId, receipt]));
+    const freshIds = uniqueIds.filter((id) => !previousById.has(id));
+    const preflight = await this.deletionPreflight(auth, freshIds);
+    if (preflight.some((item) => !item.authorized)) {
+      return uniqueIds.map((id) => {
+        const prior = previousById.get(id);
+        if (prior) return { id, accepted: true, state: prior.state === 'complete' ? 'complete' : 'pending' };
+        const item = preflight.find((item) => item.id === id);
+        return { id, state: 'blocked', scope: item?.scope, code: item?.code ?? 'DELETION_BATCH_NOT_AUTHORIZED' };
+      });
+    }
+    let receipts: Awaited<ReturnType<typeof this.assetRepository.acceptPermanentDeletion>>;
+    try {
+      // One PostgreSQL transaction commits all receipts and Deleted states.
+      // No hash, unlink or Redis task can precede this irreversible decision.
+      receipts = await this.assetRepository.acceptPermanentDeletion(uniqueIds, auth.user.id);
+    } catch (error) {
+      throw new ConflictException(deletionCode(error));
+    }
+    try {
+      void this.jobRepository
+        .queueAll(
+          receipts
+            .filter((receipt) => receipt.state !== 'complete')
+            .map((receipt) => ({
+              name: JobName.AssetDelete,
+              data: { id: receipt.assetId, deleteOnDisk: true, deletionId: receipt.assetId },
+            })),
+        )
+        .catch((error) => {
+          this.logger.warn(`Accepted deletion awaits queue recovery: ${deletionCode(error)}`);
+        });
+    } catch (error) {
+      // Commit is already durable. Startup/recovery reads the same receipts;
+      // a Redis outage must not turn accepted deletion back into restorable Trash.
+      this.logger.warn(`Accepted deletion awaits queue recovery: ${deletionCode(error)}`);
+    }
+    const byId = new Map(receipts.map((receipt) => [receipt.assetId, receipt]));
+    return uniqueIds.map((id) => {
+      const parent = byId.get(id)!;
+      const operation = receipts.filter((receipt) => receipt.operationId === parent.operationId);
+      const failed = operation.find((receipt) => receipt.state === 'failed' || receipt.errorCode);
+      return {
+        id,
+        accepted: true,
+        scope: parent.scope,
+        state: failed ? 'failed' : operation.every((receipt) => receipt.state === 'complete') ? 'complete' : 'pending',
+        ...(failed && { code: failed.errorCode ?? 'PAIRED_DELETION_INCOMPLETE' }),
+      };
+    });
   }
 
   async permanentlyDelete(

@@ -143,6 +143,7 @@ export const getForMetadataExtraction = (
 ) => ({
   id: asset.id,
   clusterGroupId: clusterGroupId ?? newUuid(),
+  exifUpdateId: asset.exifInfo?.updateId ?? null,
   checksum: asset.checksum,
   checksumAlgorithm: asset.checksumAlgorithm,
   duplicateId: asset.duplicateId,

@@ -5,11 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/colors.dart';
 import 'package:immich_mobile/extensions/duration_extensions.dart';
+import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/models/cast/cast_manager_state.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/video_player_provider.dart';
 import 'package:immich_mobile/providers/cast.provider.dart';
-import 'package:immich_mobile/widgets/asset_viewer/animated_play_pause.dart';
 
 class VideoControls extends ConsumerStatefulWidget {
   final String videoPlayerName;
@@ -109,17 +110,13 @@ class _VideoControlsState extends ConsumerState<VideoControls> {
         children: [
           Row(
             children: [
-              IconButton(
-                iconSize: 32,
-                padding: const EdgeInsets.all(12),
-                constraints: const BoxConstraints(),
-                icon: isFinished
-                    ? const Icon(Icons.replay, color: Colors.white, shadows: VideoControls._controlShadows)
-                    : AnimatedPlayPause(
-                        color: Colors.white,
-                        playing: isPlaying,
-                        shadows: VideoControls._controlShadows,
-                      ),
+              FotoIconButton(
+                kind: isFinished
+                    ? FotoIconKind.replay
+                    : isPlaying
+                    ? FotoIconKind.pause
+                    : FotoIconKind.play,
+                label: isPlaying ? context.t.pause : context.t.play,
                 onPressed: () => _toggle(isCasting),
               ),
               const Spacer(),

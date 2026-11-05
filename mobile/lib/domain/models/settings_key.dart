@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:immich_mobile/constants/colors.dart';
 import 'package:immich_mobile/constants/enums.dart';
+import 'package:immich_mobile/domain/models/config/timeline_config.dart';
 import 'package:immich_mobile/domain/models/log.model.dart';
 import 'package:immich_mobile/domain/models/person.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
@@ -15,6 +16,9 @@ enum SettingsKey<T> {
   themeMode<ThemeMode>(codec: EnumCodec(ThemeMode.values)),
   themeDynamic<bool>(),
   themeColorfulInterface<bool>(),
+
+  // Animations (stored by name; no database schema migration).
+  animationFancyDeletion<bool>(),
 
   // Image
   imagePreferRemote<bool>(),
@@ -66,6 +70,10 @@ enum SettingsKey<T> {
   timelineGroupAssetsBy<GroupAssetsBy>(codec: EnumCodec(GroupAssetsBy.values)),
   timelineStorageIndicator<bool>(),
   timelineAutoplayLivePhotos<bool>(),
+  timelinePresentation<TimelinePresentation>(
+    codec: EnumCodec(TimelinePresentation.values, fallback: TimelinePresentation.classic),
+  ),
+  timelineFloatingDate<bool>(),
 
   // Log
   logLevel<LogLevel>(codec: EnumCodec(LogLevel.values)),

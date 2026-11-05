@@ -942,6 +942,8 @@ with
           and "stacked"."visibility" = $3
         group by
           "stacked"."stackId"
+        having
+          count(*) > $4
       ) as "stacked_assets" on true
     order by
       (asset."localDateTime" AT TIME ZONE 'UTC')::date desc,

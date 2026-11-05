@@ -22,6 +22,11 @@ services:
       # rebase that touches this file.
       args:
         - BUILD_ID=1234567890
+        # The unchanged Noodle 5.8/5.9 clients accept Gallery 5.x servers.
+        # Keep the disposable backend on the FOTO 5.7.3 release line; otherwise
+        # server/package.json's upstream fallback (3.2.0) is exposed and the
+        # official clients reject it before login (app major 5 > server major 3 + 1).
+        - BUILD_VERSION=5.7.3
         - BUILD_IMAGE=e2e
         - BUILD_SOURCE_REF=e2e
         - BUILD_SOURCE_COMMIT=e2eeeeeeeeeeeeeeeeee

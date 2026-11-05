@@ -19,11 +19,14 @@ import 'package:immich_mobile/infrastructure/repositories/storage.repository.dar
 import 'package:immich_mobile/infrastructure/repositories/store.repository.dart';
 import 'package:immich_mobile/platform/live_photo_api.g.dart';
 import 'package:immich_mobile/platform/native_sync_api.g.dart';
+import 'package:immich_mobile/presentation/actions/action.widget.dart';
+import 'package:immich_mobile/presentation/actions/google_lens.action.dart';
 import 'package:immich_mobile/repositories/asset_media.repository.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:path/path.dart' as p;
 
 import '../test_utils.dart';
+import '../widget_tester_extensions.dart';
 
 class _MockNativeSyncApi extends Mock implements NativeSyncApi {}
 
@@ -229,6 +232,58 @@ void main() {
     file.parent.createSync(recursive: true);
     file.writeAsBytesSync(bytes);
     return file;
+  }
+
+  for (final local in [true, false]) {
+    testWidgets('Lens action stages ${local ? 'local' : 'cloud'} photo through the real share repository', (
+      tester,
+    ) async {
+      TestUtils.init();
+      final BaseAsset asset = local
+          ? TestUtils.createLocalAsset(id: 'lens-local').copyWith(name: 'lens.jpg')
+          : TestUtils.createRemoteAsset(id: 'lens-cloud').copyWith(name: 'lens.heic', livePhotoVideoId: 'motion-id');
+      final original = localFile('lens.jpg', [0xff, 0xd8, 0xff, 0xe0, 42, 17]);
+      when(() => storage.getFileForAsset('lens-local')).thenAnswer((_) async => original);
+      await tester.pumpConsumerWidget(
+        ActionButton(action: GoogleLensAction(asset: asset)),
+        overrides: [assetMediaRepositoryProvider.overrideWithValue(repository)],
+      );
+      expect(downloads, isEmpty);
+      expect(sharedArguments, isEmpty);
+      await tester.tap(find.text('Google Lens'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      expect(downloads, isEmpty);
+      expect(sharedArguments, isEmpty);
+      await tester.runAsync(() async {
+        await tester.tap(find.widgetWithText(FilledButton, 'Choose an app'));
+        await shareCall.future;
+      });
+      await tester.pumpAndSettle();
+      final arguments = sharedArguments.single;
+      final staged = File((arguments['paths']! as List).single as String);
+      expect(staged.path, startsWith(p.join(tempRoot.path, 'outgoing_share')));
+      expect(staged.path, isNot(original.path));
+      expect(staged.lengthSync(), greaterThan(0));
+      expect(arguments['mimeTypes'], ['image/jpeg']);
+      expect(arguments.keys, unorderedEquals(['paths', 'mimeTypes', 'displayNames']));
+      expect(original.readAsBytesSync(), [0xff, 0xd8, 0xff, 0xe0, 42, 17]);
+      if (local) {
+        expect(downloads, isEmpty);
+        expect(staged.readAsBytesSync(), original.readAsBytesSync());
+      } else {
+        expect(downloads.single.url, 'https://example.com/api/assets/lens-cloud/thumbnail?size=preview&edited=false');
+        expect(downloads.single.httpRequestMethod, 'GET');
+        expect(downloads.single.baseDirectory, BaseDirectory.temporary);
+        expect(arguments['displayNames'], ['lens-preview.jpg']);
+      }
+      // Chooser launch returns to FOTO without deleting the receiver's copy.
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(staged.existsSync(), isTrue);
+      expect(mediaLibraryCalls, isEmpty);
+      verifyZeroInteractions(nativeSync);
+      expect(tester.takeException(), isNull);
+    });
   }
 
   Future<BuildContext> mountShareContext(WidgetTester tester) async {

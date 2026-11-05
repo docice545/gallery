@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-
 import 'package:auto_route/auto_route.dart';
 import 'package:background_downloader/background_downloader.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -14,12 +13,18 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/constants/constants.dart';
 import 'package:immich_mobile/constants/locales.dart';
+import 'package:immich_mobile/data/db/sqlite_fresh_start.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
+import 'package:immich_mobile/data/db/sqlite_one_tap_recovery.dart';
+import 'package:immich_mobile/data/db/sqlite_recovery_platform.dart';
+import 'package:immich_mobile/data/db/sqlite_recovery_server.dart';
 import 'package:immich_mobile/data/store.dart';
 import 'package:immich_mobile/domain/services/background_worker.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/infrastructure/repositories/network.repository.dart';
 import 'package:immich_mobile/pages/common/splash_screen.page.dart';
+import 'package:immich_mobile/pages/common/sqlite_recovery.page.dart';
 import 'package:immich_mobile/platform/background_worker_lock_api.g.dart';
 import 'package:immich_mobile/providers/app_life_cycle.provider.dart';
 import 'package:immich_mobile/providers/asset_viewer/share_intent_upload.provider.dart';
@@ -32,12 +37,14 @@ import 'package:immich_mobile/providers/view_intent/view_intent_handler.provider
 import 'package:immich_mobile/routing/app_navigation_observer.dart';
 import 'package:immich_mobile/routing/router.dart';
 import 'package:immich_mobile/services/deep_link.service.dart';
+import 'package:immich_mobile/services/recovery_server.service.dart';
 import 'package:immich_mobile/theme/dynamic_theme.dart';
 import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/utils/app_asset_loader.dart';
 import 'package:immich_mobile/utils/bootstrap.dart';
 import 'package:immich_mobile/utils/cache/widgets_binding.dart';
 import 'package:immich_mobile/utils/debug_print.dart';
+import 'package:immich_mobile/utils/diagnostics/frame_capture.dart';
 import 'package:immich_mobile/utils/licenses.dart';
 import 'package:immich_mobile/utils/migration.dart';
 import 'package:immich_mobile/wm_executor.dart';
@@ -47,25 +54,88 @@ import 'package:logging/logging.dart';
 import 'package:timezone/data/latest.dart';
 
 void main() async {
+  ImmichWidgetsBinding();
+  installFotoFrameCapture();
   try {
-    ImmichWidgetsBinding();
-    unawaited(BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock());
+    // Cancellation/admission must precede Bootstrap and creation of any pool.
+    await BackgroundWorkerLockService(BackgroundWorkerLockApi()).lock();
     await EasyLocalization.ensureInitialized();
-    final (dataController, apiService) = await Bootstrap.initDomain();
+    await openFoto();
+  } on SqliteDatabaseUnhealthy {
+    if (!Platform.isAndroid) {
+      rethrow;
+    }
+    final diagnostic = await SqliteRecoveryPlatform.diagnostic().catchError((_) => <String, Object?>{});
+    final initialReason = diagnostic['status'] as String?;
+    final sourceReason = diagnostic['reason'] as String?;
+    final sqliteCode = diagnostic['sqliteCode'] as int?;
+    final recovery = OneTapSqliteRecovery(const AndroidRecoveryHost());
+    final freshStart = FreshSqliteStart(const AndroidFreshStartHost());
+    runApp(
+      EasyLocalization(
+        supportedLocales: locales.values.toList(),
+        path: translationsPath,
+        useFallbackTranslations: true,
+        fallbackLocale: locales.values.first,
+        assetLoader: const AppAssetLoader(),
+        child: SqliteRecoveryPage(
+          initialReason: initialReason,
+          initialDetail: sourceReason == null
+              ? null
+              : '$sourceReason${sqliteCode == null ? '' : ' / SQLITE $sqliteCode'}',
+          recoverAndOpen: () async {
+            await recovery.run();
+            try {
+              await openFoto();
+            } on SqliteDatabaseUnhealthy {
+              rethrow;
+            } catch (error, stack) {
+              // A later, unrelated bootstrap error must not offer another
+              // REINDEX against the already committed healthy generation.
+              runApp(BootstrapErrorWidget(error: error.toString(), stack: stack.toString()));
+            }
+          },
+          exportBackup: () async => (await SqliteRecoveryPlatform.channel.invokeMethod<bool>('export')) ?? false,
+          openServerPhotos: () async =>
+              RecoveryServerClient(await captureRecoveryServerCredentials(const AndroidRecoveryHost())),
+          prepareFreshStart: freshStart.prepare,
+          startFreshAndOpen: (preparation) async {
+            await freshStart.run(preparation, consent: true);
+            try {
+              await openFoto();
+            } catch (error, stack) {
+              // The new generation is already committed. Never offer another
+              // fresh start in response to an unrelated later bootstrap error.
+              runApp(BootstrapErrorWidget(error: error.toString(), stack: stack.toString()));
+            }
+          },
+        ),
+      ),
+    );
+  } catch (error, stack) {
+    runApp(BootstrapErrorWidget(error: error.toString(), stack: stack.toString()));
+  }
+}
+
+/// Normal startup is reused after recovery, including the existing account's
+/// Store and router. No account/setup state is synthesized by recovery.
+Future<void> openFoto() async {
+  final (dataController, apiService) = await Bootstrap.initDomain();
+  try {
     await initApp();
-    // Warm-up isolate pool for worker manager
     await workerManagerPatch.init(dynamicSpawning: true, isolatesCount: max(Platform.numberOfProcessors - 1, 5));
     await migrateDatabaseIfNeeded(dataController.db);
     await dataController.db.syncStreamRepository.recoverPendingTrashOperations();
-
     runApp(
       ProviderScope(
         overrides: Store.overrideWith(dataController: dataController, apiService: apiService),
         child: const MainWidget(),
       ),
     );
-  } catch (error, stack) {
-    runApp(BootstrapErrorWidget(error: error.toString(), stack: stack.toString()));
+  } catch (_) {
+    await workerManagerPatch.dispose();
+    await dataController.close();
+    rethrow;
   }
 }
 

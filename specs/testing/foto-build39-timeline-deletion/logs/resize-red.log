@@ -1,0 +1,73 @@
+00:00 +0: loading /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: [176, 107, 71, 255]
+  Actual: [237, 231, 241, 255]
+   Which: at location [0] is <237> instead of <176>
+Reflow must keep the same photo visible while its resized thumbnail is decoding
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart:336:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart line 336
+The test description was:
+  Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:02 +0 -1: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer [E]
+  Test failed. See exception logs above.
+  The test description was: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer
+
+00:02 +0 -1: Timeline _Case.local for 3 selected photos uses the real action and thumbnail renderer
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: [176, 107, 71, 255]
+  Actual: [237, 231, 241, 255]
+   Which: at location [0] is <237> instead of <176>
+Reflow must keep the same photo visible while its resized thumbnail is decoding
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart:336:15)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart line 336
+The test description was:
+  Timeline _Case.local for 3 selected photos uses the real action and thumbnail renderer
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:03 +0 -2: Timeline _Case.local for 3 selected photos uses the real action and thumbnail renderer [E]
+  Test failed. See exception logs above.
+  The test description was: Timeline _Case.local for 3 selected photos uses the real action and thumbnail renderer
+
+00:03 +0 -2: Timeline _Case.disabled for 3 selected photos uses the real action and thumbnail renderer
+00:03 +1 -2: Timeline _Case.reduced for 3 selected photos uses the real action and thumbnail renderer
+00:04 +2 -2: Timeline _Case.rejected for 3 selected photos uses the real action and thumbnail renderer
+Error (Failed to delete assets): Bad state: Synthetic server rejection
+test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart 206:13  main.<fn>.operation
+package:immich_mobile/presentation/actions/delete.action.dart 369:5          DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:18         DeleteAction._delete
+
+00:04 +3 -2: Timeline _Case.osCancelled for 3 selected photos uses the real action and thumbnail renderer
+00:05 +4 -2: Timeline _Case.unloaded for 3 selected photos uses the real action and thumbnail renderer
+00:05 +5 -2: (tearDownAll)
+00:05 +5 -2: Some tests failed.
+
+Failing tests:
+  /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.local for 3 selected photos uses the real action and thumbnail renderer
+  /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer

@@ -112,7 +112,7 @@ Widget _localized(Widget child) => EasyLocalization(
 class _StubRouterDelegate extends RouterDelegate<void> with ChangeNotifier {
   _StubRouterDelegate(this.child);
 
-  final Widget child;
+  Widget child;
 
   @override
   Widget build(BuildContext context) => child;
@@ -127,8 +127,35 @@ class _StubRouterDelegate extends RouterDelegate<void> with ChangeNotifier {
 /// Wrap [child] in a minimal [Router] so a [BackButtonListener] beneath it can resolve its
 /// dispatcher. Tests that build their own [MaterialApp] around a timeline-bearing page need this;
 /// [pumpConsumerWidget] and friends already apply it.
-Widget withStubRouter(Widget child) =>
-    Router<void>(routerDelegate: _StubRouterDelegate(child), backButtonDispatcher: RootBackButtonDispatcher());
+Widget withStubRouter(Widget child) => _StubRouterHost(child: child);
+
+class _StubRouterHost extends StatefulWidget {
+  const _StubRouterHost({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_StubRouterHost> createState() => _StubRouterHostState();
+}
+
+class _StubRouterHostState extends State<_StubRouterHost> {
+  late final _delegate = _StubRouterDelegate(widget.child);
+  final _dispatcher = RootBackButtonDispatcher();
+
+  @override
+  Widget build(BuildContext context) {
+    // Locale/theme updates must not orphan an existing BackButtonListener's
+    // child dispatcher by replacing its parent dispatcher underneath it.
+    _delegate.child = widget.child;
+    return Router<void>(routerDelegate: _delegate, backButtonDispatcher: _dispatcher);
+  }
+
+  @override
+  void dispose() {
+    _delegate.dispose();
+    super.dispose();
+  }
+}
 
 class _MaterialHost extends StatelessWidget {
   const _MaterialHost({required this.child, this.theme});

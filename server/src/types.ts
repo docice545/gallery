@@ -240,6 +240,11 @@ export interface IAssetDeleteJob extends IEntityJob {
 }
 
 /** An explicit, owner-scoped request for bounded background permanent deletion. */
+export interface IAssetDeleteCheckJob extends IBaseJob {
+  /** Re-drive sealed receipts only; never create a new retention decision on bootstrap. */
+  resumeOnly?: boolean;
+}
+
 export interface IAssetDeleteBatchJob extends IBaseJob {
   ownerId: string;
   ids: string[];
@@ -562,7 +567,7 @@ export type JobItem =
   | { name: JobName.PersonCleanup; data?: IBaseJob }
   | { name: JobName.AssetDelete; data: IAssetDeleteJob }
   | { name: JobName.AssetDeleteBatch; data: IAssetDeleteBatchJob }
-  | { name: JobName.AssetDeleteCheck; data?: IBaseJob }
+  | { name: JobName.AssetDeleteCheck; data?: IAssetDeleteCheckJob }
 
   // Library Management
   | { name: JobName.LibrarySyncFiles; data: ILibraryFileJob }

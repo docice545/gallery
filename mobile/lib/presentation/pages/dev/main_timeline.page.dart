@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/services/offline_thumbnail_warmup.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/timeline_compact_selection.dart';
 import 'package:immich_mobile/presentation/widgets/feature_message/feature_message_dialog.widget.dart';
 import 'package:immich_mobile/presentation/widgets/filter_sheet/filter_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/images/face_aware_thumbnail_scope.widget.dart';
@@ -31,8 +32,6 @@ import 'package:logging/logging.dart';
 
 /// Scroll offset the memories strip occupies at the top of the timeline —
 /// matches [MemoryLane]'s own max height so the scrubber lines up.
-const double _memoryLaneHeight = 200;
-
 @RoutePage()
 class MainTimelinePage extends ConsumerStatefulWidget {
   const MainTimelinePage({super.key});
@@ -68,9 +67,7 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
     }
     final user = ref.read(currentUserProvider);
     final owners = ref.read(timelineUsersProvider).valueOrNull;
-    if (user == null ||
-        owners == null ||
-        !owners.contains(user.id)) {
+    if (user == null || owners == null || !owners.contains(user.id)) {
       return;
     }
 
@@ -105,14 +102,11 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
   @override
   void initState() {
     super.initState();
-    _syncSubscription = ref.listenManual(
-      syncStatusProvider.select((s) => s.remoteSyncStatus),
-      (_, status) {
-        if (status == SyncStatus.success) {
-          _startOfflineWarmup();
-        }
-      },
-    );
+    _syncSubscription = ref.listenManual(syncStatusProvider.select((s) => s.remoteSyncStatus), (_, status) {
+      if (status == SyncStatus.success) {
+        _startOfflineWarmup();
+      }
+    });
     _timelineUsersSubscription = ref.listenManual(timelineUsersProvider, (_, next) {
       if (next.hasValue) {
         _startOfflineWarmup();
@@ -187,13 +181,16 @@ class _MainTimelinePageState extends ConsumerState<MainTimelinePage> {
                 child: FaceAwareThumbnailScope(
                   child: Timeline(
                     denseLayout: true,
+                    bottomSheet: const TimelineCompactSelection(),
+                    dockGroupingPill: true,
                     topSliverWidget: SliverMainAxisGroup(
                       slivers: [
                         const PhotosFilterSubheader(),
                         if (showMemories) const SliverToBoxAdapter(child: MemoryLane()),
+                        if (showMemories) const SliverToBoxAdapter(child: SizedBox(height: 24)),
                       ],
                     ),
-                    topSliverWidgetHeight: showMemories ? _memoryLaneHeight : 0,
+                    topSliverWidgetHeight: showMemories ? memoryLaneMaxHeight + 24 : 0,
                     showStorageIndicator: true,
                     appBar: const PhotosTimelineAppBar(),
                     bottomSliverWidget: const _SearchLoadMoreFooter(),

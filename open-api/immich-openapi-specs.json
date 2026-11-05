@@ -6329,6 +6329,18 @@
         "required": ["id", "status"],
         "type": "object"
       },
+      "MagicEraserSaveDto": {
+        "default": {},
+        "properties": {
+          "timeZoneOffsetMinutes": {
+            "description": "Current device UTC offset for the new copy, supported by EXIF extraction. Unsupported offsets are rejected. The server chooses the save instant; omitted means UTC.",
+            "maximum": 840,
+            "minimum": -720,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "MaintenanceAction": {
         "description": "Maintenance action",
         "enum": ["start", "end", "select_database_restore", "restore_database"],
@@ -8682,6 +8694,11 @@
       },
       "PermanentDeletionDto": {
         "properties": {
+          "acceptOnly": {
+            "description": "Commit an irreversible decision and delete files in the background.",
+            "enum": [true],
+            "type": "boolean"
+          },
           "confirmed": {
             "enum": [true],
             "type": "boolean"
@@ -8702,6 +8719,11 @@
       },
       "PermanentDeletionResultDto": {
         "properties": {
+          "accepted": {
+            "description": "An owner-scoped irreversible PostgreSQL intent is committed.",
+            "enum": [true],
+            "type": "boolean"
+          },
           "batchId": {
             "description": "Durable batch job id when deletion is queued.",
             "type": "string"
@@ -26469,6 +26491,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MagicEraserSaveDto"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "201": {
             "content": {

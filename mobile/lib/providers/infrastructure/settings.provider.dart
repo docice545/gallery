@@ -10,3 +10,8 @@ final appConfigProvider = Provider.autoDispose<AppConfig>((ref) {
   ref.onDispose(subscription.cancel);
   return repo.appConfig;
 });
+
+final fancyDeletionEnabledProvider = Provider<bool>(
+  (ref) => ref.watch(appConfigProvider.select((config) => config.theme.fancyDeletion)),
+  dependencies: [appConfigProvider],
+);

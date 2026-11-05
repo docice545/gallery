@@ -18,9 +18,21 @@ import { accessibleSpaceAlbums, accessibleSpaces, spaceVisibilityGate } from 'sr
 const catalogAssetPresent = (assetId: Expression<unknown>) => sql<boolean>`not exists (
   select 1 from asset as index_tombstone
   where index_tombstone.id = ${assetId}
-    and index_tombstone.status = ${AssetStatus.Active}
-    and index_tombstone."deletedAt" is not null
+    and (
+      (index_tombstone.status = ${AssetStatus.Active} and index_tombstone."deletedAt" is not null)
+      or (
+        index_tombstone.status = ${AssetStatus.Deleted}
+        and exists (
+          select 1 from asset_deletion_tombstone as irreversible
+          where irreversible."assetId" = index_tombstone.id
+            and irreversible."ownerId" = index_tombstone."ownerId"
+        )
+      )
+    )
 )`;
+
+const catalogAssetOrNull = (assetId: Expression<unknown>) =>
+  sql<string | null>`case when ${catalogAssetPresent(assetId)} then ${assetId} else null end`;
 
 const catalogRowPresent = (table: keyof DB) => {
   const keys: Partial<Record<keyof DB, string>> = {
@@ -300,7 +312,7 @@ class AlbumSync extends BaseSync {
         'album.description',
         'album.createdAt',
         'album.updatedAt',
-        'album.albumThumbnailAssetId as thumbnailAssetId',
+        catalogAssetOrNull(sql.ref('album.albumThumbnailAssetId')).as('thumbnailAssetId'),
         'album.isActivityEnabled',
         'album.order',
         'album.updateId',
@@ -988,7 +1000,7 @@ const SHARED_SPACE_SYNC_COLUMNS = [
   'shared_space.description',
   'shared_space.color',
   'shared_space.createdById',
-  'shared_space.thumbnailAssetId',
+  catalogAssetOrNull(sql.ref('shared_space.thumbnailAssetId')).as('thumbnailAssetId'),
   'shared_space.thumbnailCropY',
   'shared_space.faceRecognitionEnabled',
   'shared_space.petsEnabled',
@@ -1649,7 +1661,7 @@ export class SharedSpaceAlbumSync extends BaseSync {
         'album.description',
         'album.createdAt',
         'album.updatedAt',
-        'album.albumThumbnailAssetId as thumbnailAssetId',
+        catalogAssetOrNull(sql.ref('album.albumThumbnailAssetId')).as('thumbnailAssetId'),
         'album.isActivityEnabled',
         'album.order',
         'album.updateId',

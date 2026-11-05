@@ -308,6 +308,13 @@ class _SpacesCollectionCard extends ConsumerWidget {
                   ),
                   child: spacesAsync.widgetWhen(
                     onLoading: () => const Center(child: CircularProgressIndicator()),
+                    onError: (_, _) => Center(
+                      child: IconButton(
+                        tooltip: context.t.retry,
+                        onPressed: () => ref.invalidate(sharedSpacesProvider),
+                        icon: const Icon(Icons.cloud_off_outlined, size: 40),
+                      ),
+                    ),
                     onData: (spaces) {
                       if (spaces.isEmpty) {
                         return Center(

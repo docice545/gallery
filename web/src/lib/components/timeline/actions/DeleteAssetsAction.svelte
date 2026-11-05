@@ -14,9 +14,16 @@
     onUndoDelete?: OnUndoDelete | undefined;
     menuItem?: boolean;
     force?: boolean;
+    includeStacks?: boolean;
   };
 
-  let { onAssetDelete, onUndoDelete = undefined, menuItem = false, force: forceRequested }: Props = $props();
+  let {
+    onAssetDelete,
+    onUndoDelete = undefined,
+    menuItem = false,
+    force: forceRequested,
+    includeStacks = false,
+  }: Props = $props();
 
   const force = $derived(forceRequested ?? false);
   let label = $derived(force ? $t('permanently_delete') : $t('delete'));
@@ -26,18 +33,18 @@
     if (loading) {
       return;
     }
-    const assets = assetMultiSelectManager.ownedAssets;
-
-    if (force && (featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal)) {
-      const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: assets.length });
-      if (!confirmed) {
-        return;
-      }
-    }
-
     loading = true;
     try {
-      const completed = await deleteAssets(force, onAssetDelete, assets, onUndoDelete);
+      const assets = assetMultiSelectManager.ownedAssets;
+
+      if (force && (featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal)) {
+        const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: assets.length });
+        if (!confirmed) {
+          return;
+        }
+      }
+
+      const completed = await deleteAssets(force, onAssetDelete, assets, onUndoDelete, { includeStacks });
       if (completed) {
         assetMultiSelectManager.clear();
       }

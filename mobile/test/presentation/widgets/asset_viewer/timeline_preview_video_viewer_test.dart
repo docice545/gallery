@@ -1240,20 +1240,36 @@ void main() {
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
-    testWidgets('${platform.name} remote-only live photo never creates a timeline player or source', (tester) async {
+    testWidgets('${platform.name} remote-only live photo uses its authenticated pair and rejects a missing pair', (
+      tester,
+    ) async {
       useSourcePlatform(platform);
       asset = RemoteAssetFactory.create(
         name: platform == TargetPlatform.android ? 'samsung.jpg' : 'apple.heic',
       ).copyWith(livePhotoVideoId: 'paired-${platform.name}-video');
-      // Even an explicit cached path cannot authorize remote-only autoplay.
-      await mountPreview(tester, injectController: false);
+      // A cached local path must not replace the known remote pair. Timeline
+      // playback uses the bounded playback endpoint even with originals enabled.
+      await mountPreview(tester);
 
-      expect(find.byType(NativeVideoPlayerView), findsNothing);
-      verifyNever(() => controller.loadVideoSource(any()));
+      expect(find.byType(NativeVideoPlayerView), findsOneWidget);
+      final source = verify(() => controller.loadVideoSource(captureAny())).captured.single as VideoSource;
+      expect(source.type, VideoSourceType.network);
+      expect(source.path, 'https://example.test/api/assets/paired-${platform.name}-video/video/playback');
+      expect(source.headers, {'x-test-auth': 'test-value'});
       verifyZeroInteractions(assetService);
       verifyZeroInteractions(storageRepository);
       expect(SettingsRepository.instance.appConfig.viewer.loadOriginalVideo, isTrue);
-      expect(calls, isEmpty);
+      expect(calls, containsAllInOrder(['volume:0.0', 'loop:false', 'load', 'play']));
+      expect(completions, 0);
+
+      await tester.pumpWidget(const SizedBox());
+      asset = RemoteAssetFactory.create(name: asset.name);
+      expect(asset.livePhotoVideoId, isNull);
+      await mountPreview(tester, injectController: false);
+      expect(find.byType(NativeVideoPlayerView), findsNothing);
+      expect(calls.where((call) => call == 'load'), hasLength(1));
+      verifyZeroInteractions(assetService);
+      verifyZeroInteractions(storageRepository);
       expect(completions, 1);
       await tester.pumpWidget(const SizedBox());
       debugDefaultTargetPlatformOverride = null;
@@ -1381,7 +1397,92 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
-  testWidgets('runtime stages distinguish source, native readiness and natural end without media identity', (
+  for (final outcome in ['ack', 'ended-before-ack', 'rejected', 'revoked', 'revoked-disposed']) {
+    testWidgets('native motion before play ACK is gated correctly: $outcome', (tester) async {
+      final records = <String>[];
+      final previousLevel = Logger.root.level;
+      Logger.root.level = Level.INFO;
+      final listener = Logger('NativeVideoViewer').onRecord.listen((record) => records.add(record.message));
+      final acknowledgement = Completer<void>();
+      var active = true;
+      var failures = 0;
+      when(() => controller.play()).thenAnswer((_) async {
+        calls.add('play');
+        status.value = PlaybackStatus.playing;
+        position.value = 147;
+        await acknowledgement.future;
+      });
+      try {
+        await mountPreview(tester, previewIsActive: () => active, onPreviewFailed: () => failures++);
+        await waitForFixture(tester, () => calls.contains('play'), 'native play command must be requested');
+        expect(playbackStarts, 0, reason: 'decoded motion alone is not a play acknowledgement');
+        expect(records, isNot(contains('Timeline motion: position-advanced')));
+        if (outcome == 'ended-before-ack') {
+          status.value = PlaybackStatus.stopped;
+          position.value = 0;
+          ended.notifyListeners();
+          expect(completions, 0);
+        }
+        if (outcome.startsWith('revoked')) {
+          active = false;
+          if (outcome == 'revoked-disposed') {
+            when(() => controller.pause()).thenAnswer((_) async {
+              calls.add('pause');
+              throw StateError('native view already disposed');
+            });
+          }
+        }
+        if (outcome == 'rejected') {
+          acknowledgement.completeError(StateError('synthetic command rejection'));
+        } else {
+          acknowledgement.complete();
+        }
+        await tester.pump();
+        if (outcome == 'ack' || outcome == 'ended-before-ack') {
+          expect(playbackStarts, 1);
+          final stages = records
+              .where(
+                (line) =>
+                    line == 'Timeline motion: selected' ||
+                    line.startsWith('Timeline motion: native-ready:') ||
+                    line == 'Timeline motion: play-request-accepted' ||
+                    line == 'Timeline motion: position-advanced',
+              )
+              .toList();
+          expect(stages, [
+            'Timeline motion: selected',
+            'Timeline motion: native-ready:1920x1080',
+            'Timeline motion: play-request-accepted',
+            'Timeline motion: position-advanced',
+          ]);
+          if (outcome == 'ack') {
+            position.value = 529;
+            ended.notifyListeners();
+          }
+          expect(playbackStarts, 1);
+          expect(completions, 1);
+          expect(failures, 0);
+        } else {
+          expect(playbackStarts, 0);
+          expect(records, isNot(contains('Timeline motion: play-request-accepted')));
+          expect(records, isNot(contains('Timeline motion: position-advanced')));
+          expect(completions, 0);
+          expect(failures, outcome == 'rejected' ? 1 : 0);
+          expect(calls.last, 'pause');
+        }
+      } finally {
+        if (!acknowledgement.isCompleted) {
+          acknowledgement.complete();
+        }
+        await tester.pumpWidget(const SizedBox());
+        await tester.runAsync(listener.cancel);
+        Logger.root.level = previousLevel;
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+  }
+
+  testWidgets('runtime stages require native position progress after readiness and play acknowledgement', (
     tester,
   ) async {
     final records = <String>[];
@@ -1397,6 +1498,23 @@ void main() {
     try {
       await mountPreview(tester);
       await tester.runAsync(() => playing.future.timeout(const Duration(seconds: 3)));
+      await tester.pump();
+      // A loaded cover and an accepted play request are not proof of motion.
+      expect(playbackStarts, 0);
+      expect(records, isNot(contains('Timeline motion: position-advanced')));
+      position.value = 100;
+      await tester.pump();
+      expect(playbackStarts, 1);
+      final stages = [
+        'Timeline motion: selected',
+        'Timeline motion: native-ready:1920x1080',
+        'Timeline motion: play-request-accepted',
+        'Timeline motion: position-advanced',
+      ];
+      expect(records.where(stages.contains).toList(), stages);
+      position.value = 200;
+      await tester.pump();
+      expect(records.where((record) => record == stages.last), hasLength(1));
       ended.notifyListeners();
       await tester.pump();
       expect(records, containsAll(['Timeline motion: selected', 'Timeline motion: platform-view-created']));

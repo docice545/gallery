@@ -46,6 +46,7 @@ void main() {
 
     expect(find.byType(ImmichIconButton), findsOneWidget);
     expect(live.isEditable, isFalse);
+    expect(live.isStillCopyEditable, isTrue);
     expect(live.livePhotoVideoId, 'linked-motion-video');
     expect(live.stackId, 'existing-stack');
   });

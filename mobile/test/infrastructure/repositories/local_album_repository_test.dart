@@ -1,16 +1,25 @@
+import 'package:async/async.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/album/local_album.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
+import 'package:immich_mobile/domain/models/timeline.model.dart';
 import 'package:immich_mobile/infrastructure/repositories/local_album.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/local_asset.repository.dart';
+import 'package:immich_mobile/infrastructure/repositories/timeline.repository.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 import '../../test_utils/medium_factory.dart';
 
 void main() {
   late Drift db;
   late MediumFactory mediumFactory;
+
+  // TimelineRepository parses SQLite bucket dates with an explicit English
+  // DateFormat. Repository tests have no app/localization bootstrap.
+  setUpAll(() => initializeDateFormatting('en'));
 
   setUp(() {
     db = Drift(DatabaseConnection(NativeDatabase.memory(), closeStreamsSynchronously: true));
@@ -19,6 +28,74 @@ void main() {
 
   tearDown(() async {
     await db.close();
+  });
+
+  test('confirmed removal resolves exact albums before cascade removes links', () async {
+    final albums = LocalAlbumRepository(db);
+    final assets = LocalAssetRepository(db);
+    final removed = _localAsset('removed');
+    final retained = _localAsset('retained');
+    await albums.upsert(mediumFactory.localAlbum(id: 'camera'), toUpsert: [removed]);
+    await albums.upsert(mediumFactory.localAlbum(id: 'favorites'), toUpsert: [removed, retained]);
+    await albums.upsert(mediumFactory.localAlbum(id: 'unrelated'), toUpsert: [_localAsset('other')]);
+    expect(await assets.getAlbumIdsForAssets(['removed']), {'camera', 'favorites'});
+    expect(await assets.getAlbumIdsForAssets([]), isEmpty);
+    await assets.deleteAssets(['removed']);
+    expect(await albums.getAssets('camera'), isEmpty);
+    expect((await albums.getAssets('favorites')).map((asset) => asset.id), ['retained']);
+    expect((await albums.getAssets('unrelated')).map((asset) => asset.id), ['other']);
+  });
+
+  test('an open main Timeline observes new media deltas, deduplicates and keeps chronological order', () async {
+    final albums = LocalAlbumRepository(db);
+    final old = _localAsset('old');
+    final screenshot = _localAsset('screenshot').copyWith(createdAt: DateTime(2026, 11, 4));
+    final camera = _localAsset('camera').copyWith(createdAt: DateTime(2026, 11, 3));
+    await albums.upsert(
+      mediumFactory.localAlbum(id: 'screenshots', backupSelection: BackupSelection.selected),
+      toUpsert: [old],
+    );
+    await albums.upsert(mediumFactory.localAlbum(id: 'camera', backupSelection: BackupSelection.selected));
+    final query = TimelineRepository(db).main(['owner'], 'owner', GroupAssetsBy.day);
+    final buckets = StreamQueue(query.bucketSource());
+    // Runs before the enclosing tearDown closes SQLite, even on assertion or
+    // stream errors. Graceful cancel may wait behind a pending queue request.
+    addTearDown(() => buckets.cancel(immediate: true));
+    expect((await buckets.next).fold<int>(0, (n, b) => n + b.assetCount), 1);
+    await albums.processDelta(
+      updates: [screenshot, camera],
+      deletes: [],
+      assetAlbums: {
+        screenshot.id: ['screenshots'],
+        camera.id: ['camera'],
+      },
+    );
+    expect((await buckets.next).fold<int>(0, (n, b) => n + b.assetCount), 3);
+    expect((await query.assetSource(0, 20)).map((a) => a.id), ['screenshot', 'camera', 'old']);
+    // Replayed notifications must upsert, never append duplicate asset IDs.
+    await albums.processDelta(
+      updates: [screenshot, camera],
+      deletes: [],
+      assetAlbums: {
+        screenshot.id: ['screenshots'],
+        camera.id: ['camera'],
+      },
+    );
+    expect((await query.assetSource(0, 20)).map((a) => a.id), ['screenshot', 'camera', 'old']);
+    // Metadata and folder moves keep identity; chronological order follows the new date.
+    await albums.processDelta(
+      // MediaStore reports both the changed capture metadata and DATE_MODIFIED.
+      // An identical updatedAt is deliberately an idempotent replay in Android upserts.
+      updates: [camera.copyWith(createdAt: DateTime(2026, 11, 5), updatedAt: DateTime(2026, 11, 5, 12))],
+      deletes: [],
+      assetAlbums: {
+        camera.id: ['screenshots'],
+      },
+    );
+    expect((await query.assetSource(0, 20)).map((a) => a.id), ['camera', 'screenshot', 'old']);
+    expect(await albums.getAssetIds('camera'), isEmpty);
+    await albums.processDelta(updates: [], deletes: ['screenshot'], assetAlbums: {});
+    expect((await query.assetSource(0, 20)).map((a) => a.id), ['camera', 'old']);
   });
 
   group('getAll', () {

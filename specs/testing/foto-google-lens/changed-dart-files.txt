@@ -1,0 +1,6 @@
+mobile/lib/presentation/actions/google_lens.action.dart
+mobile/lib/presentation/widgets/icons/proposal/foto_icon_mapping.dart
+mobile/lib/utils/action_button.utils.dart
+mobile/test/presentation/widgets/asset_viewer/google_lens_viewer_test.dart
+mobile/test/repositories/asset_media_repository_test.dart
+mobile/test/unit/presentation/actions/google_lens_action_test.dart

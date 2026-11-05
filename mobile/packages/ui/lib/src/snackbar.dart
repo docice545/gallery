@@ -41,6 +41,7 @@ class SnackbarManager {
       .info => (Icons.info_rounded, colors.info, colors.onInfo),
       .success => (Icons.check_circle_rounded, colors.success, colors.onSuccess),
       .error => (Icons.warning_rounded, colors.error, colors.onError),
+      .neutral => (Icons.check_rounded, theme.colorScheme.surfaceContainerHigh, theme.colorScheme.onSurface),
     };
 
     SnackBarAction? snackAction;
@@ -55,8 +56,11 @@ class SnackbarManager {
     return SnackBar(
       behavior: .floating,
       backgroundColor: background,
+      elevation: type == .neutral ? 0 : null,
+      width: type == .neutral ? (MediaQuery.sizeOf(context).width - 24).clamp(0, 560).toDouble() : null,
+      padding: type == .neutral ? const EdgeInsets.symmetric(horizontal: 16) : null,
       duration: duration,
-      shape: const RoundedRectangleBorder(borderRadius: .all(.circular(ImmichRadius.sm))),
+      shape: RoundedRectangleBorder(borderRadius: .all(.circular(type == .neutral ? 20 : ImmichRadius.sm))),
       // A snackbar carrying an action stays up until it is tapped by default; our actions are optional
       persist: false,
       content: Row(
@@ -107,6 +111,12 @@ class SnackbarManager {
     Duration? duration,
     SnackbarAction? action,
   }) => show(message, .error, duration: duration, action: action);
+
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? neutral(
+    String message, {
+    Duration? duration,
+    SnackbarAction? action,
+  }) => show(message, .neutral, duration: duration, action: action);
 }
 
 const snackbar = SnackbarManager();

@@ -305,8 +305,13 @@ open class NativeSyncApiImplBase(context: Context) : ImmichPlugin(), ActivityAwa
     return PlatformAssetPlaybackStyle.IMAGE
   }
 
+  protected open fun onSyncReadStarted() {}
+
   fun getAlbums(callback: (Result<List<PlatformAlbum>>) -> Unit) {
-    runSync(callback) { getAlbums() }
+    runSync(callback) {
+      onSyncReadStarted()
+      getAlbums()
+    }
   }
 
   private suspend fun getAlbums(): List<PlatformAlbum> {

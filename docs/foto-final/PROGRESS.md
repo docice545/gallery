@@ -269,3 +269,93 @@ commit without repeating destructive work.
 - **Final retry:** GHCR authentication was added in `1f27ec1f15af` with
   `packages: read`; final stabilized run `40890985422` is waiting on a hosted
   runner. No further heavy workflow was started after that push.
+
+## 2026-10-29 — Stage 6: Build 22 P0 compatibility and Android gate repair
+
+- **Checkpoint:** `c40b15395` on `codex/foto-build22-resume-20261029`; remote branch SHA verified.
+- **Fact check:** public GitHub Actions run `40909759811` was re-read from GitHub web. `api-contract` is PASS; `ios-contract` is CANCELLED; `android-offline-cache` and `foto-offline-emulator` are FAIL; both stock Android 5.8.0 (`123575099353`) and 5.9.0 (`123575100102`) exhaust all retries at `phase=wait_login` with the exact server-version incompatibility message. The run is on `b216af2be0dd5867c45221724f9612afff62abb8`.
+- **Root cause and fix:** official v5.8.0/v5.9.0 source accepts server major versions from `app.major` through `app.major + 1`. The disposable backend exposed the un-stamped `server/package.json` fallback `3.2.0`, so both unchanged 5.x clients rejected it before login. `e2e/docker-compose.yml` now passes the existing Docker `BUILD_VERSION=5.7.3` stamp, and the API smoke asserts `/api/server/version` is `5.7.3`. Original APKs remain byte-for-byte untouched.
+- **Android smoke:** both emulator scripts now poll the UI hierarchy for a semantic text input (including compatible subclasses/input-type metadata), emit the current phase and UI summary on timeout, and no longer throw an uninformative `IndexError` when the field is not present. A fake no-field run exits explicitly at `server_endpoint_field`.
+- **Gradle:** the hosted cache job and Build 22 debug build now bound heap to runner memory, cap heap at 6 GiB, disable parallel workers, disable the daemon for unit tests, and persist complete JVM/Kotlin daemon options through Gradle user properties for Flutter builds. Tests must still run; no assertions were disabled.
+- **SQLite:** added a copy-only recovery operator and fixtures. It validates a captured DB/WAL/SHM snapshot, runs integrity and foreign-key checks, fingerprints user tables including pending operations, only attempts named-index `REINDEX` on a proven index-only failure, writes a redacted receipt, and never promotes a candidate. Flutter execution remains pending because this Cloud image has no Dart/Flutter runtime.
+- **Verification:** 12 server compatibility/API contract tests PASS; `pnpm --dir server build` PASS with 79 Gallery migrations and compatibility aliases; version-stamp unit probe PASS; Docker Compose config, shell syntax, Python/JSON checks and `git diff --check` PASS. Plugin WASM build is BLOCKED by missing pinned `extism-js`; hosted Android/iOS/device/HP/NAS gates remain open.
+- **Production:** unchanged. No HP, NAS, signing key, real user data or production service was accessed.
+- **Next stage:** run one controlled hosted workflow on this exact published SHA, then inspect jobs/artifacts before continuing SQLite device replay, original-client full flows, and remaining product gates.
+
+## 2026-10-29 — Stage 7: SQLite corruption recovery and deterministic Android actions
+
+- **Source checkpoints:** `76f36de52a5abcdf42b2cbddb38207751c14f3e7` (P0 sync/recovery implementation) and `55e3b091e85a610f908c61aa6867b28a77891684` (stock-client semantic action flow); the branch remote head was verified at the latter SHA.
+- **SQLite P0 implementation:** `updateAssetsV2` now halts on unsafe SQLite result `779`, lets the transaction roll back, captures a copy-only DB/WAL/SHM snapshot, preserves pending/cursor rows, and propagates `SqliteDatabaseUnhealthy` through service and background-sync gates. An explicit recovery release epoch clears stale worker-isolate gates only after validated copy recovery.
+- **Reproducible fixture:** `mobile/test/infrastructure/repositories/sqlite_sync_recovery_file_test.dart` creates a file-backed Drift database, corrupts the production `UQ_remote_assets_owner_checksum` index, verifies the real `updateAssetsV2` failure and unchanged primary bytes, diagnoses and `REINDEX`s a copied candidate, then replays the same asset event on that candidate while asserting pending/cursor values survive. `sync_stream_service_test.dart` also verifies no ACK is sent after the corruption signal. The primary/device database is never reset or promoted by this code.
+- **Android gate repair:** both emulator scripts now wait for focused text input, clear and read back URL/email with bounded retry, tolerate masked passwords, choose enabled semantic `Next`/`Login` actions, and use an IME fallback only when the endpoint action is absent. Disabled fields cannot advance the login gate.
+- **Checks available in Cloud:** `git diff --check`, both smoke scripts with `bash -n`, Python release handoff tests (3/3) and static source review PASS. Flutter/Dart runtime is unavailable in this environment, so the new file-backed test awaits hosted execution.
+- **Hosted evidence:** run `40937674495` on `76f36de52` passed API contract/backend smoke but its Android/FOTO jobs were cancelled by the superseding semantic-action checkpoint; no Android or SQLite runtime PASS is inferred. Run `40938640647` for `55e3b091e` is queued behind that cleanup and is the authoritative next gate.
+- **Release status:** `NOT_RELEASE_READY`. Samsung S23, macOS/iOS runtime, production-signing APK, HP/NAS, production services and physical-device replay remain open. No production HP, Synology NAS, signing key, user data or primary SQLite database was changed.
+
+## 2026-10-29 — Stage 8: Hosted P0 proof and bounded Build 22 launch diagnosis
+
+- **SQLite P0 hosted proof:** run `40938640647` on `55e3b091e85a610f908c61aa6867b28a77891684` completed the iOS Flutter gate, including the real file-backed SQLite recovery fixture. The fixture reproduced corruption of `UQ_remote_assets_owner_checksum`, observed SQLite result `779`, preserved the primary bytes and pending/cursor settings after rollback, repaired only a copied candidate with `REINDEX`, and replayed the asset event on that candidate. The receipt keeps `promotionAllowed=false`.
+- **Original clients:** the same run completed the unchanged official Android 5.8.0 and 5.9.0 emulator E2E jobs. Both clients accepted the stamped disposable backend (`5.7.3`); the earlier backend-version incompatibility is closed without changing either APK.
+- **Build 22 failure evidence:** run `40945591027` on `52129624a0cc1bcf65bcc22ef096c49154b8a000` passed APK build, PostgreSQL/Redis, backend, seed fixture and KVM/ADB preparation. Its three emulator attempts reached `wait_for_boot`, `server_endpoint_dump` and `clear_and_launch`, then exited before the endpoint field; public annotations exposed no deeper shell log.
+- **Bounded diagnosis fix:** checkpoint `99d4a58eabf6cc13f1f4e4fc3151cde051925b03` splits that phase into `clear_data` and `launch`, bounds `pm clear` to 15 seconds as disposable-emulator best effort, and keeps the launcher strict. Shell syntax, `git diff --check`, and Python release handoff tests (3/3) pass locally. Hosted verification is run `40950288472` on this exact SHA.
+- **Release status:** remains `NOT_RELEASE_READY` until the new Build 22 smoke, macOS/iOS runtime packaging, Samsung S23, production signing, HP/NAS and production service gates are independently closed. No production HP, Synology NAS, signing key, user data or primary SQLite database was changed.
+
+## 2026-10-29 — Stage 9: Build 22 hosted E2E closed on exact source SHA
+
+- **Diagnostic checkpoint:** `a89bcb0c14aec952ea3377504905c1759c2425d2` added `ERR` inheritance, bounded `uiautomator dump` retries, stderr/error detection, XML hierarchy validation, atomic UI snapshots and an artifact dump log. Run `40956102162` proved the previously hidden failure: the API 35 media permission dialog (`Allow limited access` / `Allow all`) blocked the endpoint and authenticated UI. Its annotations provided phase and UI evidence without touching any real device.
+- **Final fix:** `d9b64f1a15d5582f08fa5b9f8fd24c5062a5a552` grants the requested media permissions only to the disposable emulator package after `pm clear` and dismisses those exact semantic dialog labels before strict endpoint assertions. Both original-client and FOTO scripts carry the same bounded UI handling.
+- **Exact-SHA hosted PASS:** run `40961734970` completed all jobs on `d9b64f1a…`: API contract/backend (`123755970160`), iOS analysis/service/repository/rendered tests and SQLite recovery fixture (`123755969746`), Android cache unit tests (`123755970070`), Build 22 APK/backend/seed/KVM and offline process-death replay (`123755969984`), and unchanged official Android 5.8.0 (`123755970131`) plus 5.9.0 (`123755969995`). The FOTO smoke reached credentials, login, endpoint and offline phases and completed successfully; no compatibility-version error or permission-dialog failure remained.
+- **P0 SQLite state:** the file-backed hosted fixture remains PASS for real `SQLITE_CORRUPT_INDEX` result `779` in `updateAssetsV2`, rollback, pending/cursor preservation, copy-only `REINDEX`, promotion prohibition and replay on the repaired copy. No primary/device database was reset, replaced or promoted.
+- **Release status:** `NOT_RELEASE_READY` still reflects unperformed production gates: Samsung S23 physical replay, production signing key/release artifact, HP/Synology/NAS validation and production-service operations. No production HP, Synology NAS, signing key or user data was changed.
+
+## 2026-10-30 — Stage 10: final acceptance matrix and release handoff
+
+- **Documentation checkpoint:** `535827a29` records the exact 33-row master
+  acceptance matrix, two supplemental P0 gates, the current release-gate ledger,
+  `RELEASE_README.md`, and `release-manifest-20261030.json`.
+- **Authoritative hosted evidence:** run `40961734970` is complete/successful;
+  Build 22 emulator, API/backend, Android cache policy, iOS simulator/source and
+  unchanged Android Noodle 5.8.0/5.9.0 jobs are all PASS. The file-backed
+  SQLite fixture reproduces result `779` at `updateAssetsV2`, preserves pending
+  operations/cursors, repairs only a copied candidate and resumes on that copy.
+- **Focused source checks:** server duplicate/stack/trash suites report 87 passing
+  tests; focused Web editor/live-photo/Places/motion suite reports 65 passing
+  tests. Medium suites requiring a container runtime remain blocked before tests.
+- **Release handoff:** package `de.opennoodle.gallery`, version `5.7.3+22`, and
+  prior certificate `ad3e9c15946efe274efa83f96655c1b14d57539867cea27964ea9793a88ded18`
+  are recorded. The old key is not present in Cloud, so the signed APK is
+  `BLOCKED_OLD_KEY_HP_ONLY`; no replacement key was created or copied.
+- **Open gates:** PR creation remains blocked by the configured HTTP 403 token;
+  Samsung/Android 16 and physical iOS, HP/Synology/NFS and populated-restore
+  checks, final Web/Chromium build, signed release artifact and production
+  operations remain open. Overall status stays `NOT_RELEASE_READY`.
+
+## 2026-10-30 — Stage 13: continuation from confirmed remote HEAD
+
+- Resumed `0b0e924b75b2e3417dd3a35a96771b94b15fc69f`; inspected full run
+  `41052091521` logs. Its only failed job was iOS analysis with 21 diagnostics.
+  Other jobs, strict Flutter test groups and the simulator build passed.
+- Source/workflow checkpoint: `0719bf7042d128b09a3591f3a084af1edf2b5ae6`.
+  Commits `ff0824c31`, `d6ade5d15`, `70ae8ac2f` and `0719bf704` fix test
+  diagnostics, reject incomplete/corrupt WAL recovery evidence, align the
+  obsolete Live Photo thumbnail test with existing remote playback, and bring
+  existing Kotlin media policies into the final gate. No architecture rewrite.
+- Local results: analyzer zero issues; SQLite 15 pass; feature Flutter selection
+  1962 pass (includes all 74 timeline Live Photo tests); server 263 unit and 67
+  real PostgreSQL tests pass with 175 fresh migrations; web 78 focused tests pass.
+  The new WAL tests first reproduced false `healthy` results for missing,
+  truncated and checksum-damaged WALs, then passed after the fix. Primary DB/WAL
+  bytes and pending upload/delete rows are preserved; 779 repair stays copy-only.
+- The original feature run had 1961 passes and one stale thumbnail assertion.
+  Existing commit `abcf9c341` already enabled remote-only motion playback.
+  The updated test retains Hero/static image/badge/tap assertions; the complete
+  selected run then passed all 1962 tests. Product playback was not rewritten.
+- Final hosted results must be resolved for the exact published handoff SHA
+  using `RELEASE_GATES.md`. Final delivery provides the completed run links;
+  historical runs above are not promoted to that SHA. The handoff describes
+  existing-key HP APK build, immutable backend build, backup/restore rehearsal,
+  separately approved migrations, server-only update and data-preserving
+  rollback boundaries. Seven shell blocks passed syntax validation only.
+- No HP/NAS connection, production signing/deployment/migration, real duplicate
+  deletion or primary-device database change occurred. `NOT RELEASE READY`
+  remains until the owner completes HP and physical-device acceptance.

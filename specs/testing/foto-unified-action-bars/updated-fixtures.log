@@ -1,0 +1,1410 @@
+00:00 +0: loading /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart
+00:00 +0: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: (setUpAll)
+00:00 +0: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting cover keeps its survivor without a stack container
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+00:01 +1: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting cover keeps its survivor without a stack container
+00:01 +2: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting cover keeps its survivor without a stack container
+00:01 +3: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting cover keeps its survivor without a stack container
+00:01 +4: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting cover keeps its survivor without a stack container
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:01 +5: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting cover keeps its survivor without a stack container
+00:01 +6: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting cover keeps its survivor without a stack container
+00:01 +7: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting cover keeps its survivor without a stack container
+Error (Failed to delete assets): UnimplementedError: ApiService instance must be set via Store.overrideWith
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:immich_mobile/data/store.dart 16:12                                    _apiServiceProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 302:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 282:7   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 302:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 282:7   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 302:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 282:7   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 302:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 282:7   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+
+00:02 +8: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: exact stack 2→1: deleting next-frame keeps its survivor without a stack container
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+Error (Failed to delete assets): UnimplementedError: ApiService instance must be set via Store.overrideWith
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:immich_mobile/data/store.dart 16:12                                    _apiServiceProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 302:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 282:7   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 302:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 282:7   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 302:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 282:7   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 302:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 282:7   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+
+00:03 +9: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: trashing a viewed primary keeps active siblings open while the server response is pending
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+Error (Failed to delete assets): UnimplementedError: ApiService instance must be set via Store.overrideWith
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:immich_mobile/data/store.dart 16:12                                    _apiServiceProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 349:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 348:43  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 337:20  main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 349:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 348:43  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 337:20  main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 349:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 348:43  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 337:20  main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 349:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 348:43  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 337:20  main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+
+00:04 +10: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: a definite server rejection restores the original viewed primary
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+Error (Failed to delete assets): ApiException 403: fixture rejection
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 166:9  main.<fn>.<fn>
+package:immich_mobile/domain/services/asset.service.dart 230:7                AssetService.trash
+package:immich_mobile/presentation/actions/delete.action.dart 369:5           DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:18          DeleteAction._delete
+
+00:04 +11: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: remote frame changes refresh the cached stack and ignore a late local deletion event
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+00:06 +12: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: an older asynchronous stack refresh cannot replace the frame selected meanwhile
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+00:06 +13: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: a rejected second deletion restores that frame while primary promotion is still pending
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+Error (Failed to delete assets): UnimplementedError: ApiService instance must be set via Store.overrideWith
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:immich_mobile/data/store.dart 16:12                                    _apiServiceProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 498:37  main.<fn>.deleteCurrent
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 510:17  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 509:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 496:20  main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 498:37  main.<fn>.deleteCurrent
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 510:17  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 509:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 496:20  main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 498:37  main.<fn>.deleteCurrent
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 510:17  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 509:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 496:20  main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 498:37  main.<fn>.deleteCurrent
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 510:17  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 509:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 496:20  main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+
+Error (Failed to delete assets): ApiException 403: second fixture rejection
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 520:9  main.<fn>.<fn>
+package:immich_mobile/domain/services/asset.service.dart 230:7                AssetService.trash
+package:immich_mobile/presentation/actions/delete.action.dart 369:5           DeleteAction._moveToTrash
+package:immich_mobile/presentation/actions/delete.action.dart 272:18          DeleteAction._delete
+
+00:07 +14: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: returning to the surviving stack page cancels a delayed neighbor load and keeps navigation mapped
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+Error (Failed to delete assets): UnimplementedError: ApiService instance must be set via Store.overrideWith
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:immich_mobile/data/store.dart 16:12                                    _apiServiceProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 565:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 564:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 544:5   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 565:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 564:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 544:5   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 565:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 564:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 544:5   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 565:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 564:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 544:5   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+
+00:08 +15: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: a failed stack refresh keeps the last displayed frame and reports the error
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+Error (Failed to refresh viewer stack): Bad state: fixture stack read failure
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 85:7  _GatedAssetService.getStack
+package:riverpod/src/async_notifier/base.dart 355:9                          FutureHandlerProviderElementMixin.handleFuture.<fn>.<fn>
+
+00:08 +16: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: deleting the final active stack frame displays the following standalone photo at the same index
+WARNING (drift): It looks like you've created the database class Drift multiple times. When these two databases use the same QueryExecutor, race conditions will occur and might corrupt the database.
+Try to follow the advice at https://drift.simonbinder.eu/faq/#using-the-database or, if you know what you're doing, set driftRuntimeOptions.dontWarnAboutMultipleDatabases = true
+Here is the stacktrace from when the database was opened a second time:
+#0      GeneratedDatabase._handleInstantiated (package:drift/src/runtime/api/db_base.dart:96:30)
+#1      GeneratedDatabase._whenConstructed (package:drift/src/runtime/api/db_base.dart:73:12)
+#2      new GeneratedDatabase (package:drift/src/runtime/api/db_base.dart:64:5)
+#3      new $Drift (package:immich_mobile/data/db/main/database.drift.dart:104:32)
+#4      new Drift (package:immich_mobile/data/db/main/database.dart)
+#5      new MediumRepositoryContext (file:///workspace/gallery/mobile/test/medium/repository_context.dart:45:24)
+#6      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart:139:18)
+<asynchronous suspension>
+#7      Future._kTrue (dart:async/future.dart:702:3)
+<asynchronous suspension>
+#8      _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> (dart:async/zone.dart:748:12)
+<asynchronous suspension>
+This warning will only appear on debug builds.
+Error (Failed to delete assets): UnimplementedError: ApiService instance must be set via Store.overrideWith
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:riverpod/src/framework/element.dart 742:20                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+package:immich_mobile/data/store.dart 16:12                                    _apiServiceProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/data/store.dart 32:56                                    Store.api.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 13:75        userApiRepositoryProvider.<fn>
+package:riverpod/src/framework/element.dart 714:12                             ProviderElementBase.watch
+package:immich_mobile/providers/infrastructure/user.provider.dart 17:28        userServiceProvider.<fn>
+package:riverpod/src/framework/container.dart 241:21                           ProviderContainer.read
+package:flutter_riverpod/src/consumer.dart 620:59                              ConsumerStatefulElement.read
+package:immich_mobile/presentation/actions/delete.action.dart 276:29           DeleteAction._delete
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 647:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 646:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 625:5   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 647:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 646:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 625:5   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 647:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 646:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 625:5   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:immich_mobile/presentation/actions/delete.action.dart 240:12           DeleteAction._delete
+package:immich_mobile/presentation/actions/delete.action.dart 191:23           DeleteAction.create.<fn>
+dart:async                                                                     new Future.sync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 647:20  main.<fn>.<fn>
+package:flutter_test                                                           WidgetTester.runAsync
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 646:20  main.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart 625:5   main.<fn>
+package:flutter_test                                                           AutomatedTestWidgetsFlutterBinding.runTest.<fn>
+package:fake_async/fake_async.dart 182:47                                      FakeAsync.run.<fn>.<fn>
+dart:async                                                                     runZoned
+package:clock/src/default.dart 52:10                                           withClock
+package:fake_async/fake_async.dart 182:15                                      FakeAsync.run.<fn>
+dart:async                                                                     runZoned
+package:fake_async/fake_async.dart 181:52                                      FakeAsync.run
+package:flutter_test                                                           testWidgets.<fn>
+package:test_api/src/backend/declarer.dart 253:25                              Declarer.test.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/declarer.dart 252:15                              Declarer.test.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/declarer.dart 250:17                              Declarer.test.<fn>
+package:test_api/src/backend/invoker.dart 318:17                               Invoker._waitForOutstandingCallbacks.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 314:5                                Invoker._waitForOutstandingCallbacks
+package:test_api/src/backend/invoker.dart 457:21                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     _CustomZone.registerUnaryCallback
+package:test_api/src/backend/invoker.dart 455:15                               Invoker._onRun.<fn>.<fn>.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/invoker.dart 445:11                               Invoker._onRun.<fn>.<fn>
+package:test_api/src/backend/invoker.dart 500:15                               Invoker._guardIfGuarded
+package:test_api/src/backend/invoker.dart 444:9                                Invoker._onRun.<fn>
+package:stack_trace                                                            Chain.capture
+package:test_api/src/backend/invoker.dart 442:11                               Invoker._onRun
+package:test_api/src/backend/live_test_controller.dart 161:11                  LiveTestController.run
+package:test_api/src/backend/remote_listener.dart 320:16                       RemoteListener._runLiveTest.<fn>
+dart:async                                                                     runZoned
+package:test_api/src/backend/remote_listener.dart 319:5                        RemoteListener._runLiveTest
+package:test_api/src/backend/remote_listener.dart 261:7                        RemoteListener._serializeTest.<fn>
+dart:async                                                                     _StreamSinkWrapper.add
+package:stream_channel/src/guarantee_channel.dart 125:12                       _GuaranteeSink.add
+package:stream_channel/src/multi_channel.dart 159:31                           new _MultiChannel.<fn>
+
+00:09 +17: /workspace/gallery/mobile/test/presentation/widgets/asset_viewer/viewer_stack_deletion_test.dart: (tearDownAll)
+00:09 +17: All tests passed!

@@ -254,26 +254,35 @@
     handlePromiseError(trashOrDelete(hasTrashedAsset));
   };
 
+  let isDeleting = false;
   const trashOrDelete = async (force: boolean = false) => {
-    const forceOrNoTrash = force || !featureFlagsManager.value.trash;
-    const selectedAssets = assetInteraction.assets;
-
-    if ((featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal) && forceOrNoTrash) {
-      const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: selectedAssets.length });
-      if (!confirmed) {
-        return;
-      }
+    if (isDeleting) {
+      return;
     }
+    isDeleting = true;
+    try {
+      const forceOrNoTrash = force || !featureFlagsManager.value.trash;
+      const selectedAssets = assetInteraction.assets;
 
-    const completed = await deleteAssets(
-      forceOrNoTrash,
-      (assetIds) => (assets = assets.filter((asset) => !assetIds.includes(asset.id))),
-      selectedAssets,
-      onReload,
-    );
+      if ((featureFlagsManager.valueOrUndefined?.authorizedDeletion || $showDeleteModal) && forceOrNoTrash) {
+        const confirmed = await modalManager.show(AssetDeleteConfirmModal, { size: selectedAssets.length });
+        if (!confirmed) {
+          return;
+        }
+      }
 
-    if (completed) {
-      assetInteraction.clear();
+      const completed = await deleteAssets(
+        forceOrNoTrash,
+        (assetIds) => (assets = assets.filter((asset) => !assetIds.includes(asset.id))),
+        selectedAssets,
+        onReload,
+      );
+
+      if (completed) {
+        assetInteraction.clear();
+      }
+    } finally {
+      isDeleting = false;
     }
   };
 
@@ -360,11 +369,48 @@
       case AssetAction.ARCHIVE:
       case AssetAction.DELETE:
       case AssetAction.TRASH: {
+        if (action.type !== AssetAction.ARCHIVE && action.stackHandled) {
+          const stackId = action.asset.stack?.id ?? action.stack?.id;
+          const index = assets.findIndex(
+            (currentAsset) => currentAsset.id === action.asset.id || (stackId && currentAsset.stack?.id === stackId),
+          );
+          if (index === -1) {
+            return;
+          }
+
+          const replacement =
+            action.stack?.assets.find(({ id }) => id === action.stack?.primaryAssetId) ?? action.replacementAsset;
+          assets = replacement
+            ? assets.map((currentAsset, currentIndex) =>
+                currentIndex === index
+                  ? {
+                      ...replacement,
+                      stack:
+                        action.stack && action.stack.assets.length > 1
+                          ? {
+                              id: action.stack.id,
+                              primaryAssetId: action.stack.primaryAssetId,
+                              assetCount: action.stack.assets.length,
+                            }
+                          : null,
+                    }
+                  : currentAsset,
+              )
+            : assets.filter((_asset, currentIndex) => currentIndex !== index);
+          return;
+        }
+
+        const index = assets.findIndex((currentAsset) => currentAsset.id === action.asset.id);
+        if (index === -1) {
+          return;
+        }
+
         const nextAsset = assetCursor.nextAsset ?? assetCursor.previousAsset;
-        assets.splice(
-          assets.findIndex((currentAsset) => currentAsset.id === action.asset.id),
-          1,
-        );
+        const wasCurrentAsset = assetCursor.current.id === action.asset.id;
+        assets = assets.filter((_asset, currentIndex) => currentIndex !== index);
+        if (!wasCurrentAsset) {
+          return;
+        }
         if (assets.length === 0) {
           return await goto(Route.photos());
         }

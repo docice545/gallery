@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/setting.model.dart';
@@ -10,6 +11,8 @@ import 'package:immich_mobile/presentation/actions/action.widget.dart';
 import 'package:immich_mobile/presentation/actions/edit_asset.action.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/bottom_bar.widget.dart';
 import 'package:immich_mobile/presentation/widgets/asset_viewer/viewer_top_app_bar.widget.dart';
+import 'package:immich_mobile/presentation/widgets/bottom_sheet/compact_selection_toolbar.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/asset_viewer/asset_viewer.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/asset_viewer/asset.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/ocr.provider.dart';
@@ -18,6 +21,7 @@ import 'package:immich_mobile/providers/infrastructure/setting.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/timeline.provider.dart';
 import 'package:immich_mobile/providers/server_info.provider.dart';
 import 'package:immich_mobile/utils/asset_filter.dart';
+import 'package:immich_mobile/utils/option.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../riverpod_mocks.dart';
@@ -49,17 +53,30 @@ class _DefaultSettings extends SettingsNotifier {
 class _Timeline extends Mock implements TimelineService {}
 
 void main() {
+  setUpAll(() async {
+    await (FontLoader('Roboto')..addFont(rootBundle.load('fonts/GoogleSans/GoogleSans-Regular.ttf'))).load();
+  });
   late PresentationContext context;
 
   setUp(() async => context = await PresentationContext.create());
   tearDown(() async => context.dispose());
 
-  Future<void> pumpViewer(WidgetTester tester, RemoteAsset asset) async {
+  Future<void> pumpViewer(
+    WidgetTester tester,
+    RemoteAsset asset, {
+    double textScale = 1,
+    EdgeInsets padding = EdgeInsets.zero,
+  }) async {
     final timeline = _Timeline();
     when(() => timeline.origin).thenReturn(TimelineOrigin.main);
     await tester.pumpTestWidget(
       context,
-      const Column(children: [ViewerTopAppBar(), Spacer(), ViewerBottomBar()]),
+      Builder(
+        builder: (context) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(padding: padding, textScaler: TextScaler.linear(textScale)),
+          child: const Column(children: [ViewerTopAppBar(), Spacer(), ViewerBottomBar()]),
+        ),
+      ),
       overrides: [
         assetViewerProvider.overrideWith(() => _Viewer(asset)),
         assetsActionProvider(.viewer).overrideWithValue(AssetFilter<BaseAsset>({asset})),
@@ -79,6 +96,41 @@ void main() {
     );
   }
 
+  for (final size in [const Size(320, 640), const Size(393, 852), const Size(852, 393)]) {
+    testWidgets('real viewer panels keep equal 48 dp icon actions, SafeArea and large text at $size', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final asset = RemoteAssetFactory.create(ownerId: context.currentUser.id);
+      await pumpViewer(tester, asset, textScale: 2, padding: const EdgeInsets.fromLTRB(0, 24, 0, 24));
+      final row = find.byKey(const ValueKey('viewer-action-row'));
+      expect(tester.getSize(row).height, inInclusiveRange(52, 200));
+      final actions = find.descendant(of: row, matching: find.byType(SelectionToolbarAction));
+      final boxes = [
+        for (final widget in tester.widgetList<SelectionToolbarAction>(actions)) tester.getRect(find.byWidget(widget)),
+      ];
+      expect(boxes.length, 5);
+      for (final box in boxes) {
+        expect(box.shortestSide, greaterThanOrEqualTo(48));
+        expect(box.bottom, lessThanOrEqualTo(size.height - 24));
+        for (final other in boxes.where((other) => other != box)) {
+          expect(box.deflate(.01).overlaps(other), isFalse);
+        }
+      }
+      for (final widget in tester.widgetList<SelectionToolbarAction>(actions)) {
+        expect(find.descendant(of: find.byWidget(widget), matching: find.text(widget.label)), findsOneWidget);
+      }
+      final back = find.byWidgetPredicate((w) => w is FotoIconButton && w.kind == FotoIconKind.back);
+      expect(tester.getRect(back).top, greaterThanOrEqualTo(24));
+      final favorite = find.byWidgetPredicate((w) => w is FotoIconButton && w.kind == FotoIconKind.favorite);
+      await tester.tap(favorite);
+      await tester.pumpAndSettle();
+      verify(() => context.service.asset.service.update([asset.id], isFavorite: const Option.some(true))).called(1);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final kind in ['photo', 'Live/Motion photo', 'video']) {
     testWidgets('$kind has no duplicate editor entry in the expanded top menu', (tester) async {
       var asset = RemoteAssetFactory.create(ownerId: context.currentUser.id, type: kind == 'video' ? .video : .image);
@@ -87,21 +139,33 @@ void main() {
       }
       await pumpViewer(tester, asset);
 
-      final bottomPencil = find.descendant(of: find.byType(ViewerBottomBar), matching: find.byIcon(Icons.edit));
+      final bottomPencil = find.descendant(
+        of: find.byType(ViewerBottomBar),
+        matching: find.byWidgetPredicate((w) => w is FotoIcon && w.kind == FotoIconKind.edit),
+      );
       expect(bottomPencil, kind == 'video' ? findsNothing : findsOneWidget);
-      expect(find.descendant(of: find.byType(ViewerTopAppBar), matching: find.byIcon(Icons.edit)), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(ViewerTopAppBar),
+          matching: find.byWidgetPredicate((w) => w is FotoIcon && w.kind == FotoIconKind.edit),
+        ),
+        findsNothing,
+      );
 
-      await tester.tap(find.byIcon(Icons.more_vert_rounded));
+      await tester.tap(find.byTooltip('More'));
       await tester.pumpAndSettle();
       // Opening the real menu builds the lazy menu children too.
-      expect(find.byIcon(Icons.info_outline), findsOneWidget);
+      expect(find.byWidgetPredicate((w) => w is FotoIcon && w.kind == FotoIconKind.info), findsOneWidget);
       expect(
         find.byWidgetPredicate((widget) => widget is ActionWidget && widget.action is EditAssetAction),
         findsNothing,
       );
-      expect(find.byIcon(Icons.edit), kind == 'video' ? findsNothing : findsOneWidget);
+      expect(
+        find.byWidgetPredicate((w) => w is FotoIcon && w.kind == FotoIconKind.edit),
+        kind == 'video' ? findsNothing : findsOneWidget,
+      );
 
-      await tester.tap(find.byIcon(Icons.more_vert_rounded));
+      await tester.tap(find.byTooltip('More'));
       await tester.pumpAndSettle();
       if (kind != 'video') {
         await tester.tap(bottomPencil);

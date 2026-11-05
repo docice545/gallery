@@ -113,10 +113,19 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
     if (!mounted) {
       return;
     }
-    final active =
-        (_modalRoute?.isCurrent ?? true) && (_routeData?.isActive ?? true) && TickerMode.valuesOf(context).enabled;
-    _setFeedEnabled(active);
+    _setFeedEnabled(_isRouteActive);
     refresh();
+  }
+
+  bool get _isRouteActive {
+    final route = _routeData;
+    // RouteData.isActive queries URL history, whose initial snapshot can omit
+    // the nested tab even after AutoTabsRouter displays it. Inspect the live
+    // topmost branch instead, using match identity so a different instance of
+    // the same route cannot activate a retained feed. ModalRoute still guards
+    // pageless overlays, and TickerMode suppresses offstage/transitioning tabs.
+    final inActiveBranch = route == null || route.router.root.currentSegments.any((match) => match.id == route.matchId);
+    return (_modalRoute?.isCurrent ?? true) && inActiveBranch && TickerMode.valuesOf(context).enabled;
   }
 
   void _setFeedEnabled(bool routeActive) {
@@ -181,8 +190,7 @@ class _TimelineLivePhotoScopeState extends ConsumerState<TimelineLivePhotoScope>
       if (!mounted) {
         return;
       }
-      final active =
-          (_modalRoute?.isCurrent ?? true) && (_routeData?.isActive ?? true) && TickerMode.valuesOf(context).enabled;
+      final active = _isRouteActive;
       final enabled = _settingEnabled && !_selecting && !_filterSheetVisible && _foreground && active;
       _traceDecision(
         'state',
@@ -469,11 +477,13 @@ class TimelineLivePhotoTile extends StatefulWidget {
     this.faces = const [],
     this.framingImageSize,
     this.requireMatchingFraming = false,
+    this.fillCell = false,
   });
   final BaseAsset asset;
   final List<Rect> faces;
   final Size? framingImageSize;
   final bool requireMatchingFraming;
+  final bool fillCell;
 
   @override
   State<TimelineLivePhotoTile> createState() => _TimelineLivePhotoTileState();
@@ -615,6 +625,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                   imageSize: imageSize ?? Size(previewWidth, previewHeight),
                   viewportSize: Size(constraints.maxWidth, constraints.maxHeight),
                   faces: widget.faces,
+                  allowContain: !widget.fillCell,
                   preserveEdgeContent: shouldPreserveEdgeContent(
                     widget.asset.name,
                     width: widget.asset.width,
@@ -644,6 +655,7 @@ class _TimelineLivePhotoTileState extends State<TimelineLivePhotoTile> {
                               devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
                               imageSize: widget.framingImageSize,
                               faces: widget.faces,
+                              allowContain: !widget.fillCell,
                               preserveEdgeContent: shouldPreserveEdgeContent(
                                 widget.asset.name,
                                 width: widget.asset.width,

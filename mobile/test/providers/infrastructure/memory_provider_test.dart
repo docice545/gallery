@@ -10,11 +10,13 @@ import 'package:immich_mobile/domain/services/user.service.dart';
 import 'package:immich_mobile/infrastructure/repositories/memory.repository.dart';
 import 'package:immich_mobile/providers/infrastructure/db.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/memory.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/network_status.provider.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 import 'package:immich_mobile/repositories/memory_api.repository.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../infrastructure/repository.mock.dart';
+import '../../test_utils.dart';
 
 class MockUserService extends Mock implements UserService {}
 
@@ -39,9 +41,10 @@ void main() {
     return drift;
   }
 
-  ProviderContainer makeContainer() {
+  ProviderContainer makeContainer({Stream<bool> network = const Stream.empty()}) {
     final container = ProviderContainer(
       overrides: [
+        networkTransportAvailableProvider.overrideWith((_) => network),
         driftProvider.overrideWithValue(mockDrift(memoryRepository)),
         memoryApiRepositoryProvider.overrideWithValue(memoryApiRepository),
         currentUserProvider.overrideWith((ref) => CurrentUserProvider(userService)),
@@ -74,8 +77,65 @@ void main() {
     memoryAt: DateTime.utc(2024),
     isSaved: false,
     data: const MemoryData({'year': 2024}),
-    assets: const [],
+    assets: [TestUtils.createRemoteAsset(id: 'photo-$id')],
   );
+
+  test('cached unique memories appear before offline API timeout, then server replaces the lane', () async {
+    final response = Completer<List<Memory>>();
+    when(() => memoryApiRepository.getMemoryLane()).thenAnswer((_) => response.future);
+    when(() => memoryRepository.getAll('user-1')).thenAnswer((_) async => [memory('local'), memory('local')]);
+    final container = makeContainer();
+    container.listen(visibleMemoryLaneProvider, (_, _) {});
+    await Future<void>.delayed(Duration.zero);
+    expect(response.isCompleted, isFalse);
+    expect(container.read(visibleMemoryLaneProvider).value?.map((item) => item.id), ['local']);
+    container.read(confirmedMemoryRemovalsProvider('user-1').notifier).state = {'local'};
+    expect(container.read(visibleMemoryLaneProvider).value, isEmpty);
+    response.complete([memory('local'), memory('shared'), memory('shared')]);
+    await container.read(memoryLaneProvider.future);
+    expect(container.read(visibleMemoryLaneProvider).requireValue.map((item) => item.id), ['shared']);
+  });
+
+  test('offline cached lane refreshes once on reconnect without duplicating cards', () async {
+    final network = StreamController<bool>.broadcast();
+    addTearDown(network.close);
+    var online = false;
+    when(() => memoryApiRepository.getMemoryLane()).thenAnswer((_) async {
+      if (!online) {
+        throw StateError('Synthetic offline refusal');
+      }
+      return [memory('local'), memory('shared'), memory('local')];
+    });
+    when(() => memoryRepository.getAll('user-1')).thenAnswer((_) async => [memory('local')]);
+    final container = makeContainer(network: network.stream);
+    container.listen(visibleMemoryLaneProvider, (_, _) {});
+    await container.read(memoryLaneProvider.future);
+    network.add(false);
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(visibleMemoryLaneProvider).requireValue.map((item) => item.id), ['local']);
+    online = true;
+    network.add(true);
+    await Future<void>.delayed(Duration.zero);
+    await container.read(memoryLaneProvider.future);
+    expect(container.read(visibleMemoryLaneProvider).requireValue.map((item) => item.id), ['local', 'shared']);
+    network.add(true);
+    await Future<void>.delayed(Duration.zero);
+    verify(() => memoryApiRepository.getMemoryLane()).called(2);
+  });
+
+  test('a failed memory cache cannot turn the photo surface into an error while server is pending', () async {
+    final response = Completer<List<Memory>>();
+    when(() => memoryApiRepository.getMemoryLane()).thenAnswer((_) => response.future);
+    when(() => memoryRepository.getAll('user-1')).thenThrow(StateError('Synthetic cache read failure'));
+    final container = makeContainer();
+    container.listen(visibleMemoryLaneProvider, (_, _) {});
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(visibleMemoryLaneProvider).hasError, isFalse);
+    expect(container.read(visibleMemoryLaneProvider).isLoading, isTrue);
+    response.complete([memory('available')]);
+    await container.read(memoryLaneProvider.future);
+    expect(container.read(visibleMemoryLaneProvider).requireValue.single.id, 'available');
+  });
 
   test('confirmed removal filters lane and list immediately while refresh remains pending', () async {
     final original = [memory('two-years-ago'), memory('remaining')];

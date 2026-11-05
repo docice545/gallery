@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -29,6 +30,379 @@ void main() {
     when(() => service.assetsApi).thenReturn(AssetsApi(client));
     return AssetApiRepository(service);
   }
+
+  group('durable deletion receipt lookup', () {
+    test('replayed IDs are requested once using the Build29 per-input response contract', () async {
+      final requested = <List<String>>[];
+      final sut = repository((request) async {
+        expect(request.url.path, '/api/assets/deletion-status');
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requested.add(ids);
+        // Production Build29 returns one response for each input ID. It does
+        // not deduplicate replayed logical/physical deletion audit events.
+        return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()), 200);
+      });
+
+      final receipts = await sut.deletionReceipts(['same', 'same']);
+
+      expect(requested, [
+        ['same'],
+      ]);
+      expect(receipts.map((receipt) => receipt.id), ['same']);
+      expect(receipts.single.accepted, isTrue);
+      expect(receipts.single.complete, isFalse);
+    });
+
+    test('deduplicates the whole receipt lookup before applying 200-ID batch limits', () async {
+      final unique = List.generate(201, (index) => 'asset-$index');
+      final requests = <List<String>>[];
+      final sut = repository((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requests.add(ids);
+        return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'complete'}).toList()), 200);
+      });
+
+      final receipts = await sut.deletionReceipts([...unique.take(200), unique.first, unique.last, unique[199]]);
+
+      expect(requests.map((batch) => batch.length), [200, 1]);
+      expect(requests.expand((batch) => batch), unique);
+      expect(receipts.map((receipt) => receipt.id), unique);
+    });
+
+    for (final response in [
+      '[{"id":"one","state":"complete"}]',
+      '[{"id":"one","state":"complete"},{"id":"one","state":"complete"}]',
+      '[{"id":"one","state":"complete"},{"id":"foreign","state":"complete"}]',
+      '[{"id":"one","state":"complete"},{"id":"two","state":"pending","accepted":"yes"}]',
+    ]) {
+      test('keeps strict receipt validation for an incomplete, duplicate or malformed response: $response', () async {
+        final sut = repository((_) async => Response(response, 200));
+        await expectLater(sut.deletionReceipts(['one', 'two', 'one']), throwsStateError);
+      });
+    }
+
+    test('an incomplete response remains retryable and a later complete lookup resolves the same unique IDs', () async {
+      var attempt = 0;
+      final requests = <List<String>>[];
+      final sut = repository((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        requests.add(ids);
+        return Response(
+          jsonEncode([
+            {'id': 'one', 'state': 'pending', 'accepted': true},
+            if (++attempt > 1) {'id': 'two', 'state': 'complete'},
+          ]),
+          200,
+        );
+      });
+
+      await expectLater(sut.deletionReceipts(['one', 'two', 'one']), throwsStateError);
+      final receipts = await sut.deletionReceipts(['one', 'two', 'one']);
+
+      expect(requests, [
+        ['one', 'two'],
+        ['one', 'two'],
+      ]);
+      expect(receipts.map((receipt) => receipt.id), ['one', 'two']);
+      expect(receipts.every((receipt) => receipt.accepted), isTrue);
+    });
+  });
+
+  group('instant durable acceptance', () {
+    test('500 selected IDs preflight in 200-item chunks and finish on admission without physical polling', () async {
+      final selected = List.generate(500, (index) => 'selected-$index');
+      final preflight = <List<String>>[];
+      final admissions = <List<String>>[];
+      final paths = <String>[];
+      final sut = repository((request) async {
+        paths.add(request.url.path);
+        expect(request.method, 'POST');
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final ids = (body['ids'] as List).cast<String>();
+        if (request.url.path.endsWith('/preflight')) {
+          preflight.add(ids);
+          return Response(jsonEncode(ids.map((id) => {'id': id, 'authorized': true}).toList()), 200);
+        }
+        expect(request.url.path, '/api/assets/permanent-deletion');
+        expect(body['confirmed'], isTrue);
+        expect(body['acceptOnly'], isTrue);
+        admissions.add(ids);
+        return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()), 201);
+      }, autoPreflight: false);
+
+      final results = await sut.acceptPermanentDeletion([...selected, selected.first]);
+
+      expect(preflight.map((batch) => batch.length), [200, 200, 100]);
+      expect(preflight.expand((batch) => batch), selected);
+      expect(admissions, [selected]);
+      expect(paths, [
+        for (var index = 0; index < 3; index++) '/api/assets/permanent-deletion/preflight',
+        '/api/assets/permanent-deletion',
+      ]);
+      expect(results.map((result) => result.id), selected);
+      expect(results.every((result) => result.accepted && !result.complete), isTrue);
+    });
+
+    test(
+      'sequential admission requests above 5000 preserve every pending acknowledgement without waiting on files',
+      () async {
+        final selected = List.generate(5001, (index) => 'selected-$index');
+        final admissions = <List<String>>[];
+        final firstResponse = Completer<Response>();
+        final sut = repository((request) async {
+          expect(request.url.path, '/api/assets/permanent-deletion');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['acceptOnly'], isTrue);
+          final ids = (body['ids'] as List).cast<String>();
+          admissions.add(ids);
+          if (admissions.length == 1) {
+            return firstResponse.future;
+          }
+          return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()), 200);
+        });
+
+        final operation = sut.acceptPermanentDeletion(selected);
+        await Future<void>.delayed(Duration.zero);
+        expect(admissions.map((batch) => batch.length), [5000]);
+        firstResponse.complete(
+          Response(
+            jsonEncode(admissions.single.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()),
+            201,
+          ),
+        );
+        final results = await operation;
+
+        expect(admissions.map((batch) => batch.length), [5000, 1]);
+        expect(admissions.expand((batch) => batch), selected);
+        expect(results.map((result) => result.id), selected);
+        expect(results.every((result) => result.accepted && !result.complete), isTrue);
+      },
+    );
+
+    test(
+      'lost second admission response reconciles only its durable receipt chunks and retains first acknowledgements',
+      () async {
+        final selected = List.generate(5201, (index) => 'selected-$index');
+        final admissions = <List<String>>[];
+        final receipts = <List<String>>[];
+        final sut = repository((request) async {
+          expect(request.method, 'POST');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          final ids = (body['ids'] as List).cast<String>();
+          if (request.url.path.endsWith('/permanent-deletion')) {
+            expect(body['confirmed'], isTrue);
+            expect(body['acceptOnly'], isTrue);
+            admissions.add(ids);
+            if (admissions.length == 2) {
+              throw ClientException('second response lost after the irreversible server commit');
+            }
+          } else {
+            expect(request.url.path, '/api/assets/deletion-status');
+            receipts.add(ids);
+          }
+          return Response(
+            jsonEncode(ids.reversed.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()),
+            200,
+          );
+        });
+
+        final results = await sut.acceptPermanentDeletion(selected);
+
+        expect(admissions.map((batch) => batch.length), [5000, 201]);
+        expect(receipts.map((batch) => batch.length), [200, 1]);
+        expect(receipts.expand((batch) => batch), selected.skip(5000));
+        expect(results.map((result) => result.id), selected);
+        expect(results.every((result) => result.accepted && !result.complete), isTrue);
+      },
+    );
+
+    test('returns after irreversible admission and never polls physical deletion', () async {
+      final requests = <Request>[];
+      final sut = repository((request) async {
+        requests.add(request);
+        expect(request.method, 'POST');
+        expect(request.url.path, '/api/assets/permanent-deletion');
+        expect(jsonDecode(request.body), {
+          'ids': ['still', 'motion'],
+          'confirmed': true,
+          'acceptOnly': true,
+        });
+        return Response(
+          jsonEncode([
+            {'id': 'still', 'state': 'pending', 'accepted': true, 'batchId': 'durable-batch'},
+            {'id': 'motion', 'state': 'failed', 'accepted': true, 'code': 'RETRYABLE_FILE_IO'},
+          ]),
+          201,
+        );
+      });
+      final results = await sut.acceptPermanentDeletion(['still', 'motion', 'still']);
+      expect(requests, hasLength(1));
+      expect(results.map((result) => result.id), ['still', 'motion']);
+      expect(results.every((result) => result.accepted), isTrue);
+      expect(results.every((result) => !result.complete), isTrue);
+      expect(results.first.batchId, 'durable-batch');
+      expect(results.last.state, 'failed');
+    });
+
+    test('legacy queued response without acceptance is not an irreversible receipt', () async {
+      var requests = 0;
+      final sut = repository((request) async {
+        requests++;
+        expect(request.url.path, '/api/assets/permanent-deletion');
+        return Response('[{"id":"still","state":"pending","batchId":"legacy-queued"}]', 201);
+      });
+      final result = (await sut.acceptPermanentDeletion(['still'])).single;
+      expect(result.accepted, isFalse);
+      expect(result.complete, isFalse);
+      expect(requests, 1, reason: 'do not poll a legacy physical-deletion batch');
+    });
+
+    test('physical completion is sufficient evidence even with an older response contract', () async {
+      final sut = repository((_) async => Response('[{"id":"still","state":"complete"}]', 200));
+      final result = (await sut.acceptPermanentDeletion(['still'])).single;
+      expect(result.accepted, isTrue);
+      expect(result.complete, isTrue);
+    });
+
+    test('lost response is resolved from durable receipts without waiting for file removal', () async {
+      final paths = <String>[];
+      final sut = repository((request) async {
+        paths.add(request.url.path);
+        if (request.url.path.endsWith('/permanent-deletion')) {
+          throw ClientException('response lost after server commit');
+        }
+        expect(request.url.path, '/api/assets/deletion-status');
+        expect(jsonDecode(request.body)['ids'], ['still']);
+        return Response('[{"id":"still","state":"pending","accepted":true}]', 200);
+      });
+      final result = (await sut.acceptPermanentDeletion(['still'])).single;
+      expect(result.accepted, isTrue);
+      expect(result.complete, isFalse);
+      expect(paths, ['/api/assets/permanent-deletion', '/api/assets/deletion-status']);
+    });
+
+    for (final receipt in [
+      '[{"id":"still","state":"blocked","code":"NO_DELETION_INTENT"}]',
+      '[{"id":"still","state":"pending","batchId":"legacy-queued"}]',
+    ]) {
+      test('an inconclusive lost-response status remains uncertain: $receipt', () async {
+        final sut = repository((request) async {
+          if (request.url.path.endsWith('/permanent-deletion')) {
+            throw ClientException('network loss');
+          }
+          return Response(receipt, 200);
+        });
+        final result = (await sut.acceptPermanentDeletion(['still'])).single;
+        expect(result.accepted, isFalse);
+        expect(result.state, 'uncertain');
+        expect(result.code, 'REQUEST_OUTCOME_UNKNOWN');
+      });
+    }
+
+    for (final body in [
+      '[{"id":"foreign","state":"pending","accepted":true}]',
+      '[{"id":"still","state":"pending","accepted":"yes"}]',
+      '[{"id":"still","state":"blocked","accepted":true}]',
+      '[{"id":"still","state":"pending","accepted":true},{"id":"still","state":"pending","accepted":true}]',
+    ]) {
+      test('rejects malformed acceptance identities or proof without falsely hiding any asset: $body', () async {
+        final sut = repository((_) async => Response(body, 200));
+        final result = (await sut.acceptPermanentDeletion(['still'])).single;
+        expect(result.accepted, isFalse);
+        expect(result.state, 'uncertain');
+      });
+    }
+
+    test('definite rejection stays ordinary Trash and performs no status polling', () async {
+      var requests = 0;
+      final sut = repository((request) async {
+        requests++;
+        expect(request.url.path, '/api/assets/permanent-deletion');
+        return Response('', 403);
+      });
+      final result = (await sut.acceptPermanentDeletion(['still'])).single;
+      expect(result.accepted, isFalse);
+      expect(result.state, 'blocked');
+      expect(result.code, 'REQUEST_REJECTED');
+      expect(requests, 1);
+    });
+
+    test('read-only offline preflight never admits or sends deletion', () async {
+      final paths = <String>[];
+      final sut = repository((request) async {
+        paths.add(request.url.path);
+        throw ClientException('offline');
+      }, autoPreflight: false);
+      final result = (await sut.acceptPermanentDeletion(['still'])).single;
+      expect(result.accepted, isFalse);
+      expect(result.code, 'REQUEST_NOT_SENT');
+      expect(paths, ['/api/assets/permanent-deletion/preflight']);
+    });
+
+    test('empty selection performs no network request', () async {
+      var requests = 0;
+      final sut = repository((_) async {
+        requests++;
+        return Response('', 500);
+      });
+      expect(await sut.acceptPermanentDeletion([]), isEmpty);
+      expect(requests, 0);
+    });
+
+    test('bounded chunks preserve earlier receipts and leave unsent work untouched after network loss', () async {
+      final sizes = <int>[];
+      final sut = repository((request) async {
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        if (request.url.path.endsWith('/deletion-status')) {
+          throw ClientException('status unavailable');
+        }
+        sizes.add(ids.length);
+        if (sizes.length == 2) {
+          throw ClientException('lost next batch');
+        }
+        return Response(jsonEncode(ids.map((id) => {'id': id, 'state': 'pending', 'accepted': true}).toList()), 201);
+      });
+      final results = await sut.acceptPermanentDeletion(List.generate(10001, (index) => 'id-$index'));
+      expect(sizes, [5000, 5000]);
+      expect(results.take(5000).every((result) => result.accepted), isTrue);
+      expect(results.skip(5000).take(5000).every((result) => result.state == 'uncertain'), isTrue);
+      expect(results.last.accepted, isFalse);
+      expect(results.last.code, 'REQUEST_NOT_SENT');
+    });
+
+    test('scope revocation after preflight stops all remaining admission requests', () async {
+      var posts = 0;
+      final sut = repository((request) async {
+        posts++;
+        final ids = (jsonDecode(request.body)['ids'] as List).cast<String>();
+        return Response(
+          jsonEncode(
+            ids
+                .map(
+                  (id) => {'id': id, 'state': 'blocked', 'accepted': false, 'code': 'LIBRARY_DELETION_NOT_AUTHORIZED'},
+                )
+                .toList(),
+          ),
+          201,
+        );
+      });
+      final results = await sut.acceptPermanentDeletion(List.generate(5001, (index) => 'id-$index'));
+      expect(posts, 1);
+      expect(results.every((result) => !result.accepted), isTrue);
+      expect(results.last.code, 'REQUEST_NOT_SENT');
+    });
+
+    test('per-ID receipt lookup preserves explicit admission separately from physical completion', () async {
+      final sut = repository((request) async {
+        expect(request.url.path, '/api/assets/still/deletion-status');
+        return Response('{"id":"still","state":"failed","accepted":true,"code":"ORIGINAL_DELETE_FAILED"}', 200);
+      });
+      final result = await sut.deletionStatus('still');
+      expect(result.accepted, isTrue);
+      expect(result.complete, isFalse);
+      expect(result.code, 'ORIGINAL_DELETE_FAILED');
+    });
+  });
 
   test('bulk uses bounded chunks, preserves per-item acknowledgements and deduplicates selection', () async {
     final batches = <List<String>>[];

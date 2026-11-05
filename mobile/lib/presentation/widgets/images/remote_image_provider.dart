@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:async/async.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
@@ -44,8 +47,14 @@ class RemoteImageProvider extends CancellableImageProvider<RemoteImageProvider>
 
   @override
   ImageStreamCompleter loadImage(RemoteImageProvider key, ImageDecoderCallback decode) {
+    final thumbnailUrl = key._thumbnailPlaceholderUrl;
+    final size = key.decodeSize;
+    final thumbnailSize = size != null && size.shortestSide > 250 ? size * (250 / size.shortestSide) : size;
     return OneFramePlaceholderImageStreamCompleter(
       _codec(key, decode),
+      initialImage: thumbnailUrl == null
+          ? null
+          : getInitialImage(RemoteImageProvider(url: thumbnailUrl, edited: key.edited, decodeSize: thumbnailSize)),
       informationCollector: () => <DiagnosticsNode>[
         DiagnosticsProperty<ImageProvider>('Image provider', this),
         DiagnosticsProperty<String>('Request path', RemoteImageHttpException.sanitizedPath(key.url)),
@@ -54,9 +63,68 @@ class RemoteImageProvider extends CancellableImageProvider<RemoteImageProvider>
     );
   }
 
+  String? get _thumbnailPlaceholderUrl {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        uri.pathSegments.lastOrNull != 'thumbnail' ||
+        uri.queryParameters['size'] != 'preview' ||
+        (uri.queryParameters['c']?.isEmpty ?? true)) {
+      return null;
+    }
+    // Preserve endpoint, asset, revision and edit identity. Only the resolution
+    // differs; the native cache retains its existing session/server boundaries.
+    return uri.replace(queryParameters: {...uri.queryParameters, 'size': 'thumbnail'}).toString();
+  }
+
   Stream<ImageInfo> _codec(RemoteImageProvider key, ImageDecoderCallback decode) {
     final request = this.request = RemoteImageRequest(uri: key.url, decodeSize: key.decodeSize);
-    return loadRequest(request, decode, isFinal: true);
+    if (key._thumbnailPlaceholderUrl == null) {
+      return loadRequest(request, decode, isFinal: true);
+    }
+
+    var previewDelivered = false;
+    final thumbnailSettled = Completer<void>();
+    Stream<ImageInfo> thumbnail() async* {
+      try {
+        await for (final image in initialImageStream()) {
+          if (previewDelivered || isCancelled) {
+            image.dispose();
+          } else {
+            yield image;
+          }
+        }
+      } finally {
+        thumbnailSettled.complete();
+      }
+    }
+
+    Stream<ImageInfo> preview() async* {
+      try {
+        await for (final image in loadRequest(request, decode, isFinal: true)) {
+          previewDelivered = true;
+          // Do not let a cache miss in the smaller source delay a ready preview,
+          // retain an abandoned request, or replace it later with lower quality.
+          unawaited(cachedOperation?.cancel());
+          yield image;
+        }
+      } catch (error, stack) {
+        // An offline socket may fail before the durable thumbnail is decoded.
+        // Reporting that error immediately makes Thumbnail detach/cancel BOTH
+        // streams and lose the available photo until another scroll/rebuild.
+        // Deliver the fallback first; keep the original error diagnostic and
+        // confirmed-deletion reconciliation after its independent attempt ends.
+        await thumbnailSettled.future;
+        if (!isCancelled) {
+          Error.throwWithStackTrace(error, stack);
+        }
+      }
+    }
+
+    // Native offline fallback used to run only after a preview network error.
+    // A black-holed Backend can leave that pending despite a durable thumbnail.
+    // Resolve both independently: cached pixels can display before any HTTP
+    // response, while a ready preview still wins. No retry timer or warmup change.
+    return StreamGroup.merge([thumbnail(), preview()]);
   }
 
   @override

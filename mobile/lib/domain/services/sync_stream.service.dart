@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/domain/models/server_capability.model.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/sync_event.model.dart';
@@ -70,11 +71,20 @@ class SyncStreamService {
       }
       final end = start + 200 < ids.length ? start + 200 : ids.length;
       try {
-        final completed = await AssetApiRepository(_api).completedDeletions(ids.sublist(start, end));
+        final receipts = await AssetApiRepository(_api).deletionReceipts(ids.sublist(start, end));
         if (isCancelled) {
           return;
         }
-        await _syncStreamRepository.retainPermanentDeletion(completed.toList());
+        await _syncStreamRepository.retainPermanentDeletion(
+          receipts.where((receipt) => receipt.complete).map((receipt) => receipt.id).toList(),
+        );
+        final pending = receipts
+            .where((receipt) => receipt.accepted && !receipt.complete)
+            .map((receipt) => receipt.id)
+            .toList();
+        if (pending.isNotEmpty) {
+          await _syncStreamRepository.retainPermanentDeletion(pending, complete: false);
+        }
       } catch (_) {
         // Do not acknowledge a deletion sync on unknown network outcome: retry the same sync checkpoint.
         // An older backend does not implement this candidate's durable deletion contract.
@@ -87,6 +97,10 @@ class SyncStreamService {
     if (isCancelled) {
       return false;
     }
+    // A prior updateAssetsV2 write failed with SQLITE_CORRUPT_INDEX (or another
+    // unsafe SQLite result). Stop before network work until an approved,
+    // copy-only recovery has been validated and the gate is explicitly cleared.
+    SqliteRecoveryGate.throwIfRequired('remote sync');
     _logger.info("Remote sync request for user");
     final serverVersion = await _api.serverInfoApi.getServerVersion();
     if (isCancelled) {
@@ -120,6 +134,17 @@ class SyncStreamService {
     }
     final migrations = (jsonDecode(value) as List).cast<String>();
     int previousLength = migrations.length;
+    if (await _syncStreamRepository.needsFreshLibraryDownload()) {
+      // A reused login token still has SERVER-side cursors. Clear those before
+      // the first stream into the explicitly consented empty generation, or
+      // existing photos/albums would be skipped. Retrying before local commit
+      // is idempotent; no old local operation journal is copied or executed.
+      await _syncApiRepository.restartLibraryDownload();
+      if (isCancelled) {
+        return false;
+      }
+      await _syncStreamRepository.markFreshLibraryDownloadStarted();
+    }
     await _runPreSyncTasks(migrations, serverSemVer);
     if (isCancelled) {
       return false;
@@ -169,6 +194,7 @@ class SyncStreamService {
       await Store.put(StoreKey.syncMigrationStatus, jsonEncode(migrations));
     }
 
+    await _syncStreamRepository.markFreshLibraryDownloadReady();
     return true;
   }
 
@@ -340,7 +366,7 @@ class SyncStreamService {
         }
         await _syncStreamRepository.resolvePermanentDeletion(
           snapshot,
-          accepted: receipt.state != 'blocked',
+          accepted: receipt.accepted,
           complete: receipt.complete,
         );
         continue;
@@ -708,6 +734,9 @@ class SyncStreamService {
       }
     } catch (error, stackTrace) {
       _logger.severe("Error processing AssetUploadReadyV2 websocket batch events", error, stackTrace);
+      if (error is SqliteDatabaseUnhealthy) {
+        rethrow;
+      }
     }
   }
 
@@ -789,6 +818,9 @@ class SyncStreamService {
       );
     } catch (error, stackTrace) {
       _logger.severe("Error processing AssetEditReadyV2 websocket event", error, stackTrace);
+      if (error is SqliteDatabaseUnhealthy) {
+        rethrow;
+      }
     }
   }
 

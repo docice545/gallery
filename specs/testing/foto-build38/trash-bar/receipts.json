@@ -1,0 +1,28 @@
+{
+  "baseCommit": "c3e18cff7464bdc235da9fa4f73d58a8718357d5",
+  "tests": [
+    {
+      "name": "trash-bar-regression.log",
+      "passed": 182,
+      "sha256": "aa5076fb6770254920299eeca3776f9e6dfae97a0b5a75b22d83ea2d7c522e07"
+    },
+    {
+      "name": "trash-bar-final.log",
+      "passed": 20,
+      "sha256": "01a94d1de90cb9e0a8a7aade7ad55ad4f432ad7be2a9550d4c11a60e79bc5b86"
+    }
+  ],
+  "analyzerIssues": 0,
+  "selectionViewerPixels": "IDENTICAL_FOR_EACH_THEME_AND_TEXT_SCALE",
+  "screenshots": {
+    "dark-selection-1.0.png": "38c8d44f54af9c193555e85c6041ae9c940ffbadc74dc663fe28b56e2f7ea4a7",
+    "dark-selection-2.0.png": "0ed99fde3eaef89c6e414314a1413002fa60cf19a28a703cba11a856188cd619",
+    "dark-viewer-1.0.png": "38c8d44f54af9c193555e85c6041ae9c940ffbadc74dc663fe28b56e2f7ea4a7",
+    "dark-viewer-2.0.png": "0ed99fde3eaef89c6e414314a1413002fa60cf19a28a703cba11a856188cd619",
+    "light-selection-1.0.png": "10a1aa9dd2f487c48e2d8726104f1ad7fa2b5c136cd7583e63d48e18ccb9d930",
+    "light-selection-2.0.png": "59ca733c59563e1068808d868b78f7f99bd55758d667f7203820045d3b8618a8",
+    "light-viewer-1.0.png": "10a1aa9dd2f487c48e2d8726104f1ad7fa2b5c136cd7583e63d48e18ccb9d930",
+    "light-viewer-2.0.png": "59ca733c59563e1068808d868b78f7f99bd55758d667f7203820045d3b8618a8"
+  },
+  "hardware": "DEVICE_REQUIRED"
+}

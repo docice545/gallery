@@ -226,6 +226,7 @@ class _RemoteAlbumPageState extends ConsumerState<RemoteAlbumPage> {
           ref.watch(timelineFactoryProvider).remoteAlbum(albumId: _album.id, groupBy: groupBy, temporalScope: scope),
       overrides: [currentRemoteAlbumScopedProvider.overrideWithValue(_album)],
       child: Timeline(
+        denseLayout: true,
         withGroupingPill: true,
         topSliverWidget: PendingUploadsBanner(albumId: _album.id),
         appBar: RemoteAlbumSliverAppBar(

@@ -1,0 +1,326 @@
+[
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-foto-dark-1.0.png",
+    "sha256": "3a5ce8b4745a740e7e2687e4a4f480f6dee572b791f80a2c5956a049d6039ef7",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-foto-dark-1.5.png",
+    "sha256": "ea4ccec5f46e9f9fca9d9dd9b0736f461691b72c6b670297dfbe89016731c19c",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-foto-dark-2.0.png",
+    "sha256": "8e7036a5deadf2d2a4845717f64a0ce1a0348fecfd7f7a73d2debe206449dd67",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-foto-light-1.0.png",
+    "sha256": "5b79f24f8609d99ec157836a480bea944d7dd3d6ad917ccb7cf222c977f0f2b0",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-foto-light-1.5.png",
+    "sha256": "dda3e4dee6d26d015fef7c99ff8d52d2f4c71feccf8e4462eac169501637c673",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-foto-light-2.0.png",
+    "sha256": "79f09f8c7edd3c722f1a92a84cd53be40f318b3e42633ca62e3e647ae7781da2",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-local-dark-1.0.png",
+    "sha256": "3ea3ef44b01373c06346e6c983c69333c345a061ca9796ea66638b3dd28ca91e",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-local-dark-1.5.png",
+    "sha256": "c8482d8f436832b7eab986e60ca1c53d0a1f59d34094564a8af2546ffa6f8259",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-local-dark-2.0.png",
+    "sha256": "eb676cd9ba8a8afc561a2699848b160c45c1cd57891f9d8d66298ca1b868be3e",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-local-light-1.0.png",
+    "sha256": "6171c6aa55e463ca289b865e14bc69716ffa802f6a891a1088930c91d56e3f01",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-local-light-1.5.png",
+    "sha256": "0176a05cc25daec5ccb1d05d2dc77f1c660d46e5b0de515f0cf51eb15821ba99",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/album-local-light-2.0.png",
+    "sha256": "920566c1d5f26020e8c1b879a9e2f78ea892be0f14b0fc708f713860a24d91b2",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/library-favorites-dark-1.0.png",
+    "sha256": "1e5e1dc0921a58d66d4a9973531fff40f5197a25950c644286c2e1d1f4ff33f9",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/library-favorites-dark-1.5.png",
+    "sha256": "03904fa8814e41ef9461af9ee761088b0aace20b559d2ff0c91b820c68faa412",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/library-favorites-dark-2.0.png",
+    "sha256": "fd38f20815fe7d1277388128aa8bb442b1ee45aa57d2dbd68258f4e4f55cd6ba",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/library-favorites-light-1.0.png",
+    "sha256": "d0ff50c49c061ee02c87eb8ef8bda2e8c0604c45cbe8be717bb80aac75b8ae67",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/library-favorites-light-1.5.png",
+    "sha256": "7cede087db04d03ffa87277199ac66b7a5fe7b59345f9abfeb9d5c1740ed1f4a",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/library-favorites-light-2.0.png",
+    "sha256": "11226c82ae9f5b9ed578ecc73686e9a00885c5edd2fe6ab2b092490dc244fe36",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/timeline-dark-1.0.png",
+    "sha256": "7677d46688a95c373801ba4caec132172ef05900fdceb13959cc967e58cb52b0",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/timeline-dark-1.5.png",
+    "sha256": "f18dca5e7b8ce46027c5263e39d63503c9b29913ef3a963e3dfcd44b4cad063a",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/timeline-dark-2.0.png",
+    "sha256": "be6368a236aca9ebd0e49f862924b4b204827e100906b605c6929181a11af3da",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/timeline-light-1.0.png",
+    "sha256": "8539348efedf491c421af7561b209ce97d50ca67383671449fa638a1fbf62ea3",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/timeline-light-1.5.png",
+    "sha256": "ec5d863ca59720ea3dd50ab04f8bd938a9e0cebde5167850520c6d495aae5b88",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/timeline-light-2.0.png",
+    "sha256": "cbe93649cc5a2ee53299fe7eba11dbc0c834ac78fd67af10af9a8a634b7bbe64",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/trash-selection-dark-1.0.png",
+    "sha256": "4025fc666f69b897b80941284d706e08a2500d7dffd1d892e6d32d32ba9103cc",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/trash-selection-dark-1.5.png",
+    "sha256": "b8fc2121e3753a37d0bdc1d7a5d398b68ab379d9ae04e4887242314a1ee9ca2e",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 764.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/trash-selection-dark-2.0.png",
+    "sha256": "3222d91e5619bdc060e3609e469850fdec3051a9de3f3f725f714c0671016391",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/trash-selection-light-1.0.png",
+    "sha256": "8214db08e09641a76e0d51921ae9c44a68f7125e85c714ae4ace6835e615e2ef",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/trash-selection-light-1.5.png",
+    "sha256": "3d3e00309ed8024e91af15a52aa64e23f8aeda1be96e5ebedd37e3992e968d32",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 764.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/trash-selection-light-2.0.png",
+    "sha256": "8cd76e0456c066ecb577caa07ec11283e4291860a9b1335149d6adc62cf868ea",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-cloud-dark-1.0.png",
+    "sha256": "e3140471d12fe70d5bdc7c16c1e149a2837fc435338075547f3ec3c53c9a4c50",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-cloud-dark-1.5.png",
+    "sha256": "eb737fc83994b578ddfbe05125d20108aa5a3a1b43dce6486418c0c6bc9daa7a",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-cloud-dark-2.0.png",
+    "sha256": "f8a702420ce26520d3a9b3b51c3cc6ec6bc1a365c9decc315f57b1e195d8bc58",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 631.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-cloud-light-1.0.png",
+    "sha256": "459728c792581aa20e07a4a3007013f5c02746083af5f7a7e5c7df11271679d8",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-cloud-light-1.5.png",
+    "sha256": "389946eb723e35d5b57925f03c21388e7e5559f9fdaf2d4625986133a30e75e9",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-cloud-light-2.0.png",
+    "sha256": "261375a0ef5b87d65eb7b375a2cc8a57a62146a01633c467b769931b624d0121",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 631.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-live-album-dark-1.0.png",
+    "sha256": "c9d0577988033d63c1383946374fab68c6f11c00a7effee2cf7c2948c8476ef0",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-live-album-dark-1.5.png",
+    "sha256": "83149053fd702ee329bbd106bcfce4e1c15436231c68b9416d5e278692bde2a3",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 104.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-live-album-dark-2.0.png",
+    "sha256": "815d7c0ae78ab28a1d9373007743fe1555cef081c70ea3e1b25edf6e57f2ce9f",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 631.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 112.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-live-album-light-1.0.png",
+    "sha256": "1d8978ee1ae4329c3848b3b10838ca694fc11bb5a21835442f73caf06401081b",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-live-album-light-1.5.png",
+    "sha256": "8177da59e840ee61af6c77d4c3d57abe540f5c7e338a8dc6655261ace9dce623",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 708.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 104.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-live-album-light-2.0.png",
+    "sha256": "d85a939252f101843293d30e4938379cf2d5ee9f5431bdfa9dab19bacdcca386",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 631.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 112.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-local-dark-1.0.png",
+    "sha256": "9df52546a6f7a0930fbf35c7e0a6b6056fcd15100341afc20a59789e78fa2193",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-local-dark-1.5.png",
+    "sha256": "4b850f61396c29bcd08c5198c2667e430c1eaaecb5495da060230fc5298f905c",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 764.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-local-dark-2.0.png",
+    "sha256": "7754aff6677a441440241e893e90d3ba7116b882ad44d1cb08c8dd8cafaa18ed",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-local-light-1.0.png",
+    "sha256": "c9ca863bbb8d04a466204988df8adf97880f792baf9f0ec3a6d2a362dc261af2",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-local-light-1.5.png",
+    "sha256": "99573f541e6ce5e111132b57a6a037cd51ab181dc9389cb4902b212fb3510643",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 764.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-local-light-2.0.png",
+    "sha256": "5b9f330508ccdbccf3b26d51e42c14317eca81dcf717b9265e9d523da81af7ff",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-trash-dark-1.0.png",
+    "sha256": "467449955823eaf31070cb4c8e4a0a40ad8ad4860125947967a3b17547ce54db",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-trash-dark-1.5.png",
+    "sha256": "361b18b7af23d8a61567e5354857731d1a17a473ba98d4b7a69716ba18e267a6",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 764.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-trash-dark-2.0.png",
+    "sha256": "7adb88a82af33a6ee16757db4f8fcd18c27d7ff39ff0e504b4ca7bc47311e92f",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-trash-light-1.0.png",
+    "sha256": "40afa77056a36c19eaf8b98ccb108be91657c7658ab1a642246849fdb989cf68",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 768.0, 378.0, 820.0)\nfontScale: 1.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-trash-light-1.5.png",
+    "sha256": "44ec8bab4ece32187ddef6329d4368f28ebdf07b7f6a1bcfba2854ac2faa2ce3",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 764.0, 378.0, 820.0)\nfontScale: 1.5\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  },
+  {
+    "path": "specs/testing/foto-unified-action-bars/after/viewer-trash-light-2.0.png",
+    "sha256": "c1dc1b2a89687e6de5219397d31c15ad7a1710c0f91406f082d0aa811ce131b4",
+    "fresh_render_identical": true,
+    "geometry": "bottom: Rect.fromLTRB(12.0, 694.0, 378.0, 820.0)\nfontScale: 2.0\nsource: working tree\ntop: Rect.fromLTRB(12.0, 26.0, 378.0, 74.0)"
+  }
+]

@@ -1,0 +1,102 @@
+{
+  "status": "CLOUD_P0_VERIFIED_DEVICE_REQUIRED",
+  "flutter": "3.47.2",
+  "dart": "3.13.2",
+  "base_commit": "5a4f89a12f101eb84d5da53f8f54b460ec2e2006",
+  "flutter_test_count": 157,
+  "flutter_analyzer_issues": 0,
+  "pure_jvm_test_count": 51,
+  "physical_samsung": "DEVICE_REQUIRED",
+  "hp": "HP_REQUIRED",
+  "full_android_build": "IN_PROGRESS_NETWORK_FAILURES",
+  "test_source": "containing Git commit; pending UI changes were removed for this verification",
+  "logs": [
+    {
+      "file": "offline-cache-race-red.log",
+      "result": "EXPECTED_FAIL",
+      "sha256": "58e022facc8b2c51db448e7a029ddcd4be19be31f5405076af048e252f82c52a"
+    },
+    {
+      "file": "offline-year-scrub-red-valid.log",
+      "result": "EXPECTED_FAIL",
+      "sha256": "083b126c20dca2906698dc5ae2b28ad7be23f8f068412685d954c5da048cd063"
+    },
+    {
+      "file": "offline-anchor-red.log",
+      "result": "EXPECTED_FAIL",
+      "sha256": "c95a46372467ce907c17e7a855b2440a2008cc9ce43cc2a84b64be333777749c"
+    },
+    {
+      "file": "offline-memories-red.log",
+      "result": "EXPECTED_FAIL",
+      "sha256": "33012e3f0a4d5c09c073d25a3796aa55a3612edb48b7e6fd1ba7420e3474497c"
+    },
+    {
+      "file": "offline-reconnect-red.log",
+      "result": "EXPECTED_FAIL",
+      "sha256": "1b7ac4f5f4847c4e74a4c4e7b81e83d565667782842826987f6bcd25fb2a256a"
+    },
+    {
+      "file": "offline-revision-red-confirmed.log",
+      "result": "EXPECTED_FAIL",
+      "sha256": "e29d5cc3e5a777a90e89247a325a7697193058011dacfc85acbbdbc62e486d30"
+    },
+    {
+      "file": "offline-p0-verified.log",
+      "result": "FAIL",
+      "sha256": "ea39356c9442989f764a8870123477c70b4df04f89fc35772930ebe7e3b908f6"
+    },
+    {
+      "file": "offline-p0-verified-final.log",
+      "result": "FAIL",
+      "sha256": "cf990e7efbebba64d700a020de59fea3faf4fbce6bba40e50ca0d17d0e2b4eae"
+    },
+    {
+      "file": "memory-cache-errors-fixed.log",
+      "result": "EXPECTED_FAIL",
+      "sha256": "36c0b35fdb689a8b9548aa7a0afc008a2d4d8830c9f814ffaf7c10245744106a"
+    },
+    {
+      "file": "memory-cache-errors-verified.log",
+      "result": "PASS",
+      "sha256": "3bb27fa3f699749e1e4301d6d1951ea61394e16076aadfb7d91b4c07afa858f6"
+    },
+    {
+      "file": "offline-commit-verified.log",
+      "result": "PASS",
+      "sha256": "2a9fefde4d026cb6cec9557376ff0ba7a318004891608c449376e2c13c9d58f7"
+    },
+    {
+      "file": "flutter-analyze-p0.log",
+      "result": "PASS",
+      "sha256": "c6684aa4011df32dc76c13c5d5ce3fc646248482bc4a7204e67a84a4522483e8"
+    },
+    {
+      "file": "native-pure-junit.log",
+      "result": "PASS",
+      "sha256": "f404610a3e8a85fc02194183c74353b81d2c39ec47d156b9713f03c906b2a359"
+    },
+    {
+      "file": "android-native-unit.log",
+      "result": "BLOCKED",
+      "sha256": "39c73ffd89a7ba56316901ced871e4b1302d5e1e659a772ee61acd0f61471c7d"
+    },
+    {
+      "file": "android-native-unit-retry.log",
+      "result": "BLOCKED",
+      "sha256": "d419759645200e8a37c98359bfabc89a5178fa8b0537fbabe287a15c9baeb97a"
+    }
+  ],
+  "visuals": [
+    {
+      "file": "year-2020.png",
+      "sha256": "2ba9d40aef830b0beed1af82bd281cad49c32bcd816fbb25b53ff7545796f3c5",
+      "reviewed": true
+    },
+    {
+      "file": "year-2020-after-memories.png",
+      "sha256": "2ba9d40aef830b0beed1af82bd281cad49c32bcd816fbb25b53ff7545796f3c5",
+      "reviewed": true
+    }
+  ]
+}

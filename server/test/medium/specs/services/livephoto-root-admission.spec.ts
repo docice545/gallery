@@ -136,7 +136,7 @@ describe('Live Photo root admission with actual StorageCore path generation', ()
       JobStatus.Success,
     );
     expect(await f.sut.permanentlyDelete(f.auth, [f.still.id])).toEqual([
-      { id: f.still.id, state: 'complete', scope: 'managed' },
+      { id: f.still.id, accepted: true, state: 'complete', scope: 'managed' },
     ]);
     await expect(readFile(f.motion.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
     await expect(readFile(f.still.originalPath)).rejects.toHaveProperty('code', 'ENOENT');
@@ -149,7 +149,7 @@ describe('Live Photo root admission with actual StorageCore path generation', ()
     await db.updateTable('asset').set({ livePhotoVideoId: null }).where('id', '=', f.still.id).execute();
     const snapshot = vi.spyOn(f.storage, 'snapshotOriginal');
     expect(await f.sut.permanentlyDelete(f.auth, [f.still.id])).toEqual([
-      { id: f.still.id, state: 'complete', scope: 'managed' },
+      { id: f.still.id, accepted: true, state: 'complete', scope: 'managed' },
     ]);
     expect(snapshot).toHaveBeenCalledTimes(1);
     expect(snapshot.mock.calls[0][1].map(({ path }) => path)).toEqual([f.upload]);

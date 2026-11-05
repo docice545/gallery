@@ -1,0 +1,61 @@
+00:00 +0: loading /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: exactly one matching candidate
+  Actual: _KeyWidgetFinder:<Found 0 widgets with key [<'ghost-trap-flight'>]: []>
+   Which: means none were found but one was expected
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart:365:9)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart line 365
+The test description was:
+  Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:02 +0 -1: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer [E]
+  Test failed. See exception logs above.
+  The test description was: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+
+00:02 +0 -1: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: exactly one matching candidate
+  Actual: _KeyWidgetFinder:<Found 0 widgets with key [<'ghost-trap-flight'>]: []>
+   Which: means none were found but one was expected
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart:365:9)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart line 365
+The test description was:
+  Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:02 +0 -2: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer [E]
+  Test failed. See exception logs above.
+  The test description was: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer
+
+00:02 +0 -2: (tearDownAll)
+00:02 +0 -2: Some tests failed.
+
+Failing tests:
+  /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 1 selected photos uses the real action and thumbnail renderer
+  /workspace/gallery/mobile/test/presentation/widgets/timeline/timeline_ghost_deletion_test.dart: Timeline _Case.server for 3 selected photos uses the real action and thumbnail renderer

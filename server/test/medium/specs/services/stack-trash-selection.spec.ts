@@ -4,7 +4,15 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StorageCore } from 'src/cores/storage.core.js';
-import { AssetStatus, ChecksumAlgorithm, StorageFolder, SyncEntityType, SyncRequestType } from 'src/enum.js';
+import { AuthDto } from 'src/dtos/auth.dto.js';
+import {
+  AssetStatus,
+  AssetVisibility,
+  ChecksumAlgorithm,
+  StorageFolder,
+  SyncEntityType,
+  SyncRequestType,
+} from 'src/enum.js';
 import { AccessRepository } from 'src/repositories/access.repository.js';
 import { AssetFavoriteRepository } from 'src/repositories/asset-favorite.repository.js';
 import { AssetJobRepository } from 'src/repositories/asset-job.repository.js';
@@ -18,17 +26,27 @@ import { SharedSpaceRepository } from 'src/repositories/shared-space.repository.
 import { StackRepository } from 'src/repositories/stack.repository.js';
 import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { SystemMetadataRepository } from 'src/repositories/system-metadata.repository.js';
+import { TrashRepository } from 'src/repositories/trash.repository.js';
 import { UserRepository } from 'src/repositories/user.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetService } from 'src/services/asset.service.js';
+import { NotificationService } from 'src/services/notification.service.js';
 import { StackService } from 'src/services/stack.service.js';
+import { TrashService } from 'src/services/trash.service.js';
 import { snapshotOriginal, unlinkOriginal, validateDeletionRoots } from 'src/utils/authorized-deletion.js';
 import { SyncTestContext, newMediumService } from 'test/medium.factory.js';
-import { getKyselyDB } from 'test/utils.js';
+import { getKyselyDB, newTestService } from 'test/utils.js';
 
 let database: Kysely<DB>;
 let directory: string;
 const types = [SyncRequestType.AssetsV2, SyncRequestType.StacksV1];
+const timelineAssets = async (assets: AssetRepository, auth: AuthDto) => {
+  const result = await assets.getTimeBucket('2026-10-01', { userIds: [auth.user.id], withStacked: true }, auth);
+  return JSON.parse(result.assets) as {
+    id: string[];
+    stack: (string[] | null)[];
+  };
+};
 
 beforeAll(async () => {
   database = await getKyselyDB();
@@ -134,6 +152,241 @@ const fixture = async (sizes: number[]) => {
 };
 
 describe('explicit stack selection is a complete remote UUID set', () => {
+  it('excludes Hidden/Locked cover and loose-asset metadata while allowing Archive restoration updates', async () => {
+    const f = await fixture([3]);
+    const { members } = f.stacks[0];
+    const [primary, child] = members;
+    const assets = f.ctx.get(AssetRepository);
+    const { sut: notifications, mocks } = newTestService(NotificationService, { asset: assets });
+    const read = vi.spyOn(assets, 'getByIdsForTimelineNotifications');
+    for (const visibility of [AssetVisibility.Hidden, AssetVisibility.Locked]) {
+      await assets.update({ id: primary.id, visibility });
+      await assets.update({ id: f.outsideSelection.id, visibility });
+      const assetIds = [child.id, f.outsideSelection.id];
+      mocks.websocket.clientSend.mockClear();
+      expect(await assets.getByIdsForTimelineNotifications([primary.id, ...assetIds], f.user.id)).toEqual([]);
+      read.mockClear();
+      await notifications.onAssetsRestore({ assetIds, userId: f.user.id });
+      expect(read).not.toHaveBeenCalled();
+      expect(mocks.websocket.clientSend.mock.calls).toEqual([['on_asset_restore', f.user.id, assetIds]]);
+    }
+
+    await assets.update({ id: f.outsideSelection.id, visibility: AssetVisibility.Archive });
+    mocks.websocket.clientSend.mockClear();
+    await notifications.onAssetsRestore({ assetIds: [f.outsideSelection.id], userId: f.user.id });
+    expect(mocks.websocket.clientSend.mock.calls).toEqual([
+      ['on_asset_restore', f.user.id, [f.outsideSelection.id]],
+      [
+        'on_asset_update',
+        f.user.id,
+        expect.objectContaining({
+          id: f.outsideSelection.id,
+          visibility: AssetVisibility.Archive,
+          stack: null,
+        }),
+      ],
+    ]);
+    for (const member of [...members, f.outsideSelection]) {
+      expect(await readFile(member.path)).toEqual(member.bytes);
+    }
+  });
+
+  it.each([2, 3, 5])(
+    'notifies the owner of only the active %i-frame stack cover after Trash and restore',
+    async (size) => {
+      const f = await fixture([size]);
+      const { members, stack } = f.stacks[0];
+      const primary = members[0];
+      const child = members.at(-1)!;
+      const { sut: notifications, mocks } = newTestService(NotificationService, { asset: f.ctx.get(AssetRepository) });
+      const send = mocks.websocket.clientSend;
+
+      await f.sut.deleteAll(f.auth, { ids: [child.id], force: false });
+      await notifications.onAssetsTrash({ assetIds: [child.id], userId: f.user.id });
+
+      expect(send.mock.calls).toEqual([
+        ['on_asset_trash', f.user.id, [child.id]],
+        [
+          'on_asset_update',
+          f.user.id,
+          expect.objectContaining({
+            id: primary.id,
+            ownerId: f.user.id,
+            stack: size === 2 ? null : { id: stack.id, primaryAssetId: primary.id, assetCount: size - 1 },
+          }),
+        ],
+      ]);
+
+      send.mockClear();
+      await new TrashRepository(database).restoreAll([child.id], f.user.id);
+      await notifications.onAssetsRestore({ assetIds: [child.id, child.id], userId: f.user.id });
+      expect(send.mock.calls).toEqual([
+        ['on_asset_restore', f.user.id, [child.id, child.id]],
+        [
+          'on_asset_update',
+          f.user.id,
+          expect.objectContaining({
+            id: primary.id,
+            stack: { id: stack.id, primaryAssetId: primary.id, assetCount: size },
+          }),
+        ],
+      ]);
+
+      send.mockClear();
+      await f.sut.deleteAll(f.auth, { ids: [primary.id], force: false });
+      await notifications.onAssetsTrash({ assetIds: [primary.id], userId: f.user.id });
+      const active = await f.ctx.getService(StackService).get(f.auth, stack.id);
+      expect(send.mock.calls).toEqual([
+        ['on_asset_trash', f.user.id, [primary.id]],
+        [
+          'on_asset_update',
+          f.user.id,
+          expect.objectContaining({
+            id: active.primaryAssetId,
+            stack: size === 2 ? null : { id: stack.id, primaryAssetId: active.primaryAssetId, assetCount: size - 1 },
+          }),
+        ],
+      ]);
+
+      send.mockClear();
+      const activeIds = active.assets.map(({ id }) => id);
+      await f.sut.deleteAll(f.auth, { ids: activeIds, force: false });
+      await notifications.onAssetsTrash({ assetIds: activeIds, userId: f.user.id });
+      expect(send.mock.calls).toEqual([['on_asset_trash', f.user.id, activeIds]]);
+      expect(await f.ctx.get(AssetRepository).getByIdsForTimelineNotifications(activeIds, f.user.id)).toEqual([]);
+
+      send.mockClear();
+      const { sut: restore, mocks: restoreMocks } = newTestService(TrashService, {
+        trash: new TrashRepository(database),
+      });
+      restoreMocks.duplicateRepository.deleteConflictingTombstonesForUser.mockResolvedValue();
+      restoreMocks.event.emit.mockResolvedValue();
+      expect(await restore.restore(f.auth)).toEqual({ count: size });
+      const restoredIds = members.map(({ id }) => id);
+      expect(restoreMocks.event.emit).toHaveBeenCalledWith('AssetRestoreAll', {
+        assetIds: expect.arrayContaining(restoredIds),
+        userId: f.user.id,
+      });
+      await notifications.onAssetsRestore({ assetIds: restoredIds, userId: f.user.id });
+      const restored = await f.ctx.getService(StackService).get(f.auth, stack.id);
+      expect(send.mock.calls).toEqual([
+        ['on_asset_restore', f.user.id, restoredIds],
+        [
+          'on_asset_update',
+          f.user.id,
+          expect.objectContaining({
+            id: restored.primaryAssetId,
+            stack: { id: stack.id, primaryAssetId: restored.primaryAssetId, assetCount: size },
+          }),
+        ],
+      ]);
+      const { user: other } = await f.ctx.newUser();
+      expect(await f.ctx.get(AssetRepository).getActiveTimelineRepresentativeIds(restoredIds, other.id)).toEqual([]);
+      expect(await f.ctx.get(AssetRepository).getByIdsForTimelineNotifications(restoredIds, other.id)).toEqual([]);
+    },
+  );
+
+  it.each([2, 3, 5])('keeps the %i-frame stack restorable while promoting an active primary on Trash', async (size) => {
+    const f = await fixture([size]);
+    const { members, stack } = f.stacks[0];
+    const [primary, ...survivors] = members;
+    const assets = f.ctx.get(AssetRepository);
+
+    await f.sut.deleteAll(f.auth, { ids: [primary.id], force: false });
+
+    const activeStack = await f.ctx.getService(StackService).get(f.auth, stack.id);
+    expect(survivors.map(({ id }) => id)).toContain(activeStack.primaryAssetId);
+    expect(activeStack.assets.map(({ id }) => id).toSorted()).toEqual(survivors.map(({ id }) => id).toSorted());
+    const timeline = await timelineAssets(assets, f.auth);
+    expect(timeline.id).toContain(activeStack.primaryAssetId);
+    if (size === 2) {
+      expect(timeline.stack[timeline.id.indexOf(activeStack.primaryAssetId)]).toBeNull();
+      expect(await assets.getById(activeStack.primaryAssetId, { stack: { assets: true } })).toMatchObject({
+        stack: null,
+      });
+    }
+    for (const member of members) {
+      expect(await assets.getById(member.id)).toMatchObject({ stackId: stack.id });
+      expect(await readFile(member.path)).toEqual(member.bytes);
+    }
+    const trash = new TrashRepository(database);
+    expect(await trash.restoreAll([primary.id], f.user.id)).toEqual([primary.id]);
+    const restored = await f.ctx.getService(StackService).get(f.auth, stack.id);
+    expect(restored.assets.map(({ id }) => id).toSorted()).toEqual(members.map(({ id }) => id).toSorted());
+    expect(await f.ctx.getService(StackService).getSuppressions(f.auth, 1)).toEqual([]);
+  });
+
+  it('shows a partially restored whole stack without losing its original membership', async () => {
+    const f = await fixture([3]);
+    const { members, stack } = f.stacks[0];
+    const [primary, restoredMember] = members;
+    await f.sut.deleteAll(f.auth, { ids: members.map(({ id }) => id), force: false });
+    const trash = new TrashRepository(database);
+
+    expect(await trash.restoreAll([restoredMember.id], f.user.id)).toEqual([restoredMember.id]);
+
+    expect(await f.ctx.getService(StackService).get(f.auth, stack.id)).toMatchObject({
+      primaryAssetId: restoredMember.id,
+      assets: [expect.objectContaining({ id: restoredMember.id })],
+    });
+    const timeline = await timelineAssets(f.ctx.get(AssetRepository), f.auth);
+    expect(timeline.id).toContain(restoredMember.id);
+    expect(timeline.stack[timeline.id.indexOf(restoredMember.id)]).toBeNull();
+    expect(await f.ctx.get(AssetRepository).getById(primary.id)).toMatchObject({ status: AssetStatus.Trashed });
+    expect(await trash.restore(f.user.id)).toBe(2);
+    const restored = await f.ctx.getService(StackService).get(f.auth, stack.id);
+    expect(restored.assets.map(({ id }) => id).toSorted()).toEqual(members.map(({ id }) => id).toSorted());
+    for (const member of members) {
+      expect(await f.ctx.get(AssetRepository).getById(member.id)).toMatchObject({ stackId: stack.id });
+      expect(await readFile(member.path)).toEqual(member.bytes);
+    }
+  });
+
+  it('keeps an active primary and every stack link through concurrent Trash and restore', async () => {
+    const f = await fixture([3]);
+    const { members, stack } = f.stacks[0];
+    const [primary, sibling, survivor] = members;
+    const assets = f.ctx.get(AssetRepository);
+    const stacks = f.ctx.getService(StackService);
+
+    await Promise.all([
+      f.sut.deleteAll(f.auth, { ids: [primary.id], force: false }),
+      f.sut.deleteAll(f.auth, { ids: [sibling.id], force: false }),
+    ]);
+
+    expect(await stacks.get(f.auth, stack.id)).toMatchObject({
+      primaryAssetId: survivor.id,
+      assets: [expect.objectContaining({ id: survivor.id })],
+    });
+
+    const trash = new TrashRepository(database);
+    await Promise.all([
+      trash.restoreAll([primary.id], f.user.id),
+      f.sut.deleteAll(f.auth, { ids: [survivor.id], force: false }),
+    ]);
+
+    expect(await stacks.get(f.auth, stack.id)).toMatchObject({
+      primaryAssetId: primary.id,
+      assets: [expect.objectContaining({ id: primary.id })],
+    });
+    expect(await assets.getById(primary.id, { stack: { assets: true } })).toMatchObject({
+      status: AssetStatus.Active,
+      deletedAt: null,
+      stack: null,
+    });
+    expect(await f.sut.get(f.auth, primary.id)).toMatchObject({ id: primary.id, stack: null });
+    const timeline = await timelineAssets(assets, f.auth);
+    expect(timeline.id).toContain(primary.id);
+    expect(timeline.stack[timeline.id.indexOf(primary.id)]).toBeNull();
+    for (const member of members) {
+      expect(await assets.getById(member.id)).toMatchObject({
+        stackId: stack.id,
+        status: member.id === primary.id ? AssetStatus.Active : AssetStatus.Trashed,
+      });
+      expect(await readFile(member.path)).toEqual(member.bytes);
+    }
+  });
+
   it.each([2, 3, 5])(
     'trashes and purges all %i selected frames with complete sync tombstones and no orphan',
     async (size) => {

@@ -1,0 +1,44 @@
+00:00 +0: loading /workspace/gallery/mobile/test/presentation/widgets/timeline/justified_timeline_widget_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: single horizontal 4x3 stays bounded across densities in classic
+Shell: [ERROR:flutter/runtime/dart_isolate.cc(1403)] Callbacks into the Dart VM are currently prohibited. Either there are outstanding pointers from Dart_TypedDataAcquireData that have not been released with Dart_TypedDataReleaseData, or a finalizer is running.
+00:02 +1: single horizontal 16x9 stays bounded across densities in classic
+00:02 +2: single horizontal panorama stays bounded across densities in classic
+00:03 +3: single horizontal 4x3 stays bounded across densities in immersive
+00:03 +4: single horizontal 16x9 stays bounded across densities in immersive
+00:04 +5: single horizontal panorama stays bounded across densities in immersive
+00:05 +6: offline year navigation, decoded cached photos and late memories share one geometry
+00:07 +7: late memories preserve visible photo through insertion, resize and removal
+00:07 +8: selection replaces an expanded header without moving the visible photo or changing its ID
+00:08 +9: actual Timeline selection count stays in one safe toolbar after taps and scroll at Size(320.0, 720.0)
+00:09 +10: actual Timeline selection count stays in one safe toolbar after taps and scroll at Size(720.0, 320.0)
+00:09 +11: real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: false)
+00:11 +12: real Timeline switches presentation and density while preserving the selected asset and scroll anchor (selection chrome: true)
+00:12 +13: real sliver mosaic renders 1 images without empty cells or original requests
+00:12 +14: real sliver mosaic renders 2 images without empty cells or original requests
+00:12 +15: real sliver mosaic renders 6 images without empty cells or original requests
+00:13 +16: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 2 Brightness.dark
+00:13 +17: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 2 Brightness.light
+00:13 +18: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 3 Brightness.dark
+00:14 +19: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 3 Brightness.light
+00:14 +20: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.dark
+00:14 +21: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 4 Brightness.light
+00:14 +22: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 5 Brightness.dark
+00:15 +23: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.classic density 5 Brightness.light
+00:15 +24: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.dark
+00:15 +25: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 2 Brightness.light
+00:16 +26: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 3 Brightness.dark
+00:16 +27: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 3 Brightness.light
+00:16 +28: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 4 Brightness.dark
+00:16 +29: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 4 Brightness.light
+00:17 +30: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 5 Brightness.dark
+00:17 +31: Build39 two landscape photos and portrait video 00:39 fill real rows in TimelinePresentation.immersive density 5 Brightness.light
+00:17 +32: Build39 portrait video row does not jump when actual thumbnail decoding completes
+00:17 +33: selection keeps image geometry and elements stable with the existing six-pixel tile corners
+00:18 +34: date and month boundaries preserve order and date selection across differently shaped rows
+00:18 +35: mosaic and headers fit Size(390.0, 844.0) with enlarged text without RenderFlex overflow
+00:18 +36: mosaic and headers fit Size(320.0, 568.0) with enlarged text without RenderFlex overflow
+00:18 +37: mosaic and headers fit Size(844.0, 390.0) with enlarged text without RenderFlex overflow
+00:18 +38: a 50000-item mosaic keeps image loading and render children bounded while scrolling
+00:18 +39: (tearDownAll)
+00:18 +39: All tests passed!

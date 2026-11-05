@@ -91,6 +91,9 @@ void main() {
     await tester.pump();
     final thumbnail = tester.widget<MapThumbnail>(find.byType(MapThumbnail));
     expect(thumbnail.viewport!.photoCount, 2);
+    expect(thumbnail.width, double.infinity);
+    expect(thumbnail.height, double.infinity);
+    // A 100x100 map left most of the Places header and Library card blank.
     await tester.pump();
     expect(tester.widget<MapThumbnail>(find.byType(MapThumbnail)).photoMarkers!['features'], [
       {'id': 'photo'},

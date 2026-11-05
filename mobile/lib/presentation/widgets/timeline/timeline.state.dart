@@ -24,6 +24,8 @@ abstract class TimelineArgs with _$TimelineArgs {
     @Default(false) bool showStorageIndicator,
     @Default(false) bool withStack,
     @Default(false) bool denseLayout,
+    @Default(false) bool immersive,
+    @Default(1.0) double textScale,
     GroupAssetsBy? groupBy,
   }) = _TimelineArgs;
 }
@@ -72,9 +74,17 @@ class TimelineStateNotifier extends Notifier<TimelineState> {
 // It should be used only after the timeline service and timeline args provider is overridden
 final timelineSegmentProvider = StreamProvider.autoDispose<List<Segment>>((ref) async* {
   // maxHeight is left out on purpose, a height-only change must not restart the bucket stream
-  final (maxWidth, columnCount, spacing, groupByArg, denseLayout) = ref.watch(
+  final (maxWidth, columnCount, spacing, groupByArg, denseLayout, immersive, textScale) = ref.watch(
     timelineArgsProvider.select(
-      (args) => (args.maxWidth, args.columnCount, args.spacing, args.groupBy, args.denseLayout),
+      (args) => (
+        args.maxWidth,
+        args.columnCount,
+        args.spacing,
+        args.groupBy,
+        args.denseLayout,
+        args.immersive,
+        args.textScale,
+      ),
     ),
   );
   final availableTileWidth = maxWidth - (spacing * (columnCount - 1));
@@ -99,6 +109,8 @@ final timelineSegmentProvider = StreamProvider.autoDispose<List<Segment>>((ref) 
       tileHeight: tileExtent,
       columnCount: columnCount,
       denseLayout: denseLayout,
+      hideDateHeaders: immersive,
+      headerTextScale: textScale,
       spacing: spacing,
       groupBy: isDateless ? GroupAssetsBy.day : spec.groupBy,
     ).generate();

@@ -10,6 +10,7 @@ import 'package:immich_mobile/presentation/actions/share.action.dart';
 import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
 import 'package:immich_mobile/utils/space_permissions.dart';
 import 'package:openapi/api.dart';
@@ -61,16 +62,29 @@ class _SpaceBottomSheetState extends ConsumerState<SpaceBottomSheet> {
         // the one ActionWidget subclass that never wires onSecondaryAction, and ShareAction is the
         // only action that defines one — so using it here silently killed the long-press
         // share-quality prompt.
-        const ActionColumnButton(action: AssetDebugAction(source: ActionSource.timeline)),
-        const ActionColumnButton(action: ShareAction(source: ActionSource.timeline)),
+        const ActionColumnButton(
+          fotoKind: FotoIconKind.debug,
+          action: AssetDebugAction(source: ActionSource.timeline),
+        ),
+        const ActionColumnButton(
+          fotoKind: FotoIconKind.share,
+          action: ShareAction(source: ActionSource.timeline),
+        ),
         if (multiselect.hasRemote) ...[
-          const ActionColumnButton(action: DownloadAction(source: ActionSource.timeline)),
-          const ActionColumnButton(action: FavoriteAction(source: ActionSource.timeline)),
+          const ActionColumnButton(
+            fotoKind: FotoIconKind.download,
+            action: DownloadAction(source: ActionSource.timeline),
+          ),
+          const ActionColumnButton(
+            fotoKind: FotoIconKind.favorite,
+            action: FavoriteAction(source: ActionSource.timeline),
+          ),
           // #1018: a link covering what the SPACE shows, contributions included. Same gate as
           // remove-from-space — the server authorizes a space-scoped link against Owner/Editor, so
           // offering it to a Viewer would only ever produce a rejected request.
           if (_canEdit)
             ActionColumnButton(
+              fotoKind: FotoIconKind.link,
               action: ShareLinkAction(source: ActionSource.timeline, spaceId: widget.spaceId),
             ),
           if (_canEdit)

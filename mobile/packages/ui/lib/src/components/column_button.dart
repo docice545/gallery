@@ -7,9 +7,16 @@ import 'package:immich_ui/src/internal.dart';
 
 class ImmichColumnButton extends StatefulWidget {
   final IconData icon;
+  final Widget? leadingIcon;
+  final bool preserveIconWhileLoading;
+  final double maxLabelWidth;
+  final int? maxLabelLines;
   final String label;
+  final String? semanticLabel;
+  final Color? foregroundColor;
   final FutureOr<void> Function() onPressed;
   final FutureOr<void> Function()? onLongPress;
+  final bool compact;
   final bool disabled;
   final bool? loading;
 
@@ -18,8 +25,15 @@ class ImmichColumnButton extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.semanticLabel,
+    this.foregroundColor,
+    this.leadingIcon,
+    this.preserveIconWhileLoading = false,
+    this.maxLabelWidth = 90,
+    this.maxLabelLines = 2,
     this.onLongPress,
     this.disabled = false,
+    this.compact = false,
     this.loading,
   });
 
@@ -50,35 +64,46 @@ class _ImmichColumnButtonState extends State<ImmichColumnButton> {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = context.colorOverride ?? Theme.of(context).colorScheme.onSurface;
+    final foreground = widget.foregroundColor ?? context.colorOverride ?? Theme.of(context).colorScheme.onSurface;
 
     return TextButton(
       onPressed: _onPressed,
       onLongPress: _onLongPress,
       style: TextButton.styleFrom(
         foregroundColor: foreground,
-        padding: const .symmetric(horizontal: ImmichSpacing.sm, vertical: ImmichSpacing.md),
+        minimumSize: widget.compact ? const Size(48, 52) : null,
+        padding: widget.compact
+            ? const EdgeInsets.symmetric(horizontal: 4, vertical: 4)
+            : const .symmetric(horizontal: ImmichSpacing.sm, vertical: ImmichSpacing.md),
         tapTargetSize: .shrinkWrap,
         shape: const RoundedRectangleBorder(borderRadius: .all(.circular(ImmichRadius.xl))),
       ),
       child: ConstrainedBox(
-        constraints: const .new(maxWidth: 90),
+        constraints: .new(maxWidth: widget.maxLabelWidth),
         child: Column(
           mainAxisSize: .min,
           children: [
-            _isLoading
-                ? const SizedBox.square(
-                    dimension: ImmichIconSize.md,
-                    child: CircularProgressIndicator(strokeWidth: ImmichBorderWidth.lg),
-                  )
-                : Icon(widget.icon, size: ImmichIconSize.md),
-            const SizedBox(height: ImmichSpacing.sm),
+            SizedBox(
+              height: widget.compact ? 22 : null,
+              child: Center(
+                widthFactor: 1,
+                child: _isLoading && !widget.preserveIconWhileLoading
+                    ? const SizedBox.square(
+                        dimension: ImmichIconSize.md,
+                        child: CircularProgressIndicator(strokeWidth: ImmichBorderWidth.lg),
+                      )
+                    : widget.leadingIcon ?? Icon(widget.icon, size: ImmichIconSize.md),
+              ),
+            ),
+            SizedBox(height: widget.compact ? 2 : ImmichSpacing.sm),
             Text(
               widget.label,
-              maxLines: 2,
+              semanticsLabel: widget.semanticLabel,
+              maxLines: widget.maxLabelLines,
               textAlign: .center,
-              overflow: .ellipsis,
-              style: const .new(fontSize: ImmichTextSize.body, fontWeight: .w500),
+              overflow: widget.maxLabelLines == null ? TextOverflow.visible : TextOverflow.ellipsis,
+              softWrap: true,
+              style: .new(fontSize: widget.compact ? 11 : ImmichTextSize.body, fontWeight: .w500),
             ),
           ],
         ),

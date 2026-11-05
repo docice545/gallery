@@ -1,0 +1,35 @@
+{
+  "date": "2026-11-05",
+  "automated": {
+    "regression": {
+      "passed": 105,
+      "failed": 0
+    },
+    "visualFixture": {
+      "passed": 4,
+      "failed": 0
+    },
+    "analyzerIssues": 0
+  },
+  "baselineReproduction": "real SQLite removal candidates included a remote index tombstone; regression failed before the query correction",
+  "logSha256": {
+    "free-space-tombstone-red-actual.log": "08b240f870c96c616c29eca9076c6a15c623cf3241515c957e2acbf7d0271e9d",
+    "free-space-final-regression.log": "e1d9cb52d1e675cac9cbfad3caa78d7ab7f3283e49526460e3c3e502e6068c63",
+    "free-space-visual.log": "eb6af585bf934028271a40040a56cc120411611c4bfc402da0dc2c4f8559e300",
+    "flutter-analyze-free-space-final.log": "bc8c378671788080e05179b83c5cf29e5ac4f7cc4f4eb4720095b0541c97f810",
+    "cleanup-wording-visual.log": "2496039450fc4587155d6279c8f5325788c6c3aee945f2425d283da04907ce6a"
+  },
+  "reviewedImages": {
+    "light-ru-review.png": "b4d4f25943e75353e96eaa8c47aeaa2947752de3c9371799ff6c86e238471adb",
+    "dark-ru-remaining.png": "0bb66244cab4593a534894b6260a459b9294936ac9e3861c88439e5027a22d4f",
+    "dark-ru-verify.png": "56380aed9751abfe24c69e9e6daf3f6fcd8791ab5822fc05fb146316d5272c99",
+    "light-en-review.png": "dfaca895ca592cd42f3af18af27654a12fa0af3e5dab54dce89237aa86dfca66",
+    "light-ru-verify.png": "332b6a6608e93b4d73890a30c44a4ac7ea5e96675d11e76bce6ef58c471d7962"
+  },
+  "limitations": [
+    "Synthetic widget fixtures use mock HTTP/native receipts; no physical device cleanup claimed.",
+    "HEAD verifies original availability and length with fresh owner/hash metadata; it is not a new full server-byte checksum computation.",
+    "Samsung/Android permission, iOS PhotoKit/iCloud and actual disk reclamation: DEVICE_REQUIRED."
+  ],
+  "wordingRegressionPassed": 12
+}

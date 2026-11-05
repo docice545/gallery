@@ -19,6 +19,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -91,7 +92,10 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
       "enabled" to (session != null && prefs.getString("enabledScope", null) == session.scope),
       "admitted" to admitted, "selected" to selected,
       "shizukuRunning" to shizukuReady(), "permissionGranted" to hasPermission(),
-      "recoveryPending" to prefs.contains("recoveryJournal"))
+      "recoveryPending" to prefs.contains("recoveryJournal"),
+      "sqlite" to app.alextran.immich.recovery.SqliteRecoveryPlugin.store(ctx).diagnostic(),
+      "sqliteReaderReady" to CloudSqliteReaders.available(),
+      "pickerQueries" to CloudSqliteReaders.pickerQueries.get(), "pickerRows" to CloudSqliteReaders.pickerRows.get())
   }
 
   override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -144,7 +148,7 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
     cancelled.set(false)
     val ctx = context ?: run { busy.set(false); return }
     worker.submit {
-      try {
+      val reply = try {
         val value = if (method == "status") status() else withService(ctx) { remote ->
           val prefs = ctx.getSharedPreferences("gallery.cloudmedia", Context.MODE_PRIVATE)
           val catalog = CloudMediaCatalog(ctx)
@@ -200,19 +204,28 @@ class CloudMediaPlugin : FlutterPlugin, ActivityAware, MethodChannel.MethodCallH
             }
           }
         }
-        main.post { if (attached) result.success(value) }
+        Runnable { if (attached) result.success(value) }
       } catch (e: Exception) {
         // Exception text can contain system/media/private details; expose only
         // fixed reason codes. A journal survives every uncertain outcome.
         val code = when (e.message) { "signedOut", "accountChanged", "externallyChanged", "cancelled" -> e.message!!; else -> "operationFailed" }
-        main.post { if (attached) result.error(code, "Cloud provider operation could not be verified; inspect recovery status", null) }
+        Runnable { if (attached) result.error(code, "Cloud provider operation could not be verified; inspect recovery status", null) }
       } finally { busy.set(false) }
+      // Finish/unbind and release admission BEFORE the main thread can deliver
+      // the reply. Otherwise an immediately awaited status/enable sees busy;
+      // clearing again after delivery could also unlock a newer operation.
+      main.post(reply)
     }
   }
 
   private fun <T> withService(ctx: Context, block: (ICloudAdmission) -> T): T {
+    // SDK 13.1.5 caches callbacks by tag. remove=true kills the remote process
+    // but leaves that cache until its asynchronous death callback runs. Reusing
+    // the tag can deliver the OLD disconnect to the NEW operation. These are
+    // bounded, non-daemon services with no persistent state: isolate each bind.
     val args = Shizuku.UserServiceArgs(ComponentName(ctx, CloudAdmissionService::class.java))
-      .daemon(false).processNameSuffix("cloud-admission").tag("gallery-cloud-admission").version(BuildConfig.VERSION_CODE)
+      .daemon(false).processNameSuffix("cloud-admission")
+      .tag("gallery-cloud-admission-${UUID.randomUUID()}").version(BuildConfig.VERSION_CODE)
     val connected = CompletableFuture<ICloudAdmission>()
     val connection = object : ServiceConnection {
       override fun onServiceConnected(name: ComponentName, binder: IBinder) {

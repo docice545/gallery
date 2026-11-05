@@ -1,14 +1,47 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 apk_path=${1:?APK path is required}
 version=${2:?version is required}
+printf 'FOTO offline smoke input version: %s\n' "$version"
 server_url=${3:?server URL is required}
 adb_bin=${ADB_BIN:-adb}
+adb_timeout=${ADB_COMMAND_TIMEOUT:-60}
+adb_clear_timeout=${ADB_CLEAR_TIMEOUT:-15}
+ui_dump_attempts=${UI_DUMP_ATTEMPTS:-3}
+ui_dump_retry_delay=${UI_DUMP_RETRY_DELAY:-1}
+adb_run() {
+  timeout --signal=TERM --kill-after=5s "$adb_timeout" "$adb_bin" "$@"
+}
+adb_clear() {
+  timeout --signal=TERM --kill-after=5s "$adb_clear_timeout" "$adb_bin" "$@"
+}
+assert_no_offline_error() {
+  if grep -Eqi 'Could not load value|Enable backup|Something went wrong' "$1"; then
+    echo 'Offline timeline shows an error or backup prompt' >&2
+    return 1
+  else
+    local grep_status=$?
+    # Only a readable capture with no match passes; grep errors fail closed.
+    [[ "$grep_status" -eq 1 ]]
+  fi
+}
+grant_media_permissions() {
+  # Android 14/15 photo access is reset by pm clear. These grants are scoped to
+  # the disposable emulator package; unsupported selected-media grants are
+  # intentionally best effort and the semantic dialog handler below remains.
+  for permission in \
+    android.permission.READ_MEDIA_IMAGES \
+    android.permission.READ_MEDIA_VIDEO \
+    android.permission.READ_MEDIA_VISUAL_USER_SELECTED; do
+    adb_run shell pm grant "$package_name" "$permission" >/dev/null 2>&1 || true
+  done
+}
 package_name=${PACKAGE_NAME:-de.opennoodle.gallery.debug}
 artifact_dir=${ARTIFACT_DIR:-/tmp/foto-offline-e2e}
 diagnostics_file=${ADB_DIAGNOSTICS_FILE:-$artifact_dir/adb-diagnostics.log}
+ui_dump_log=${UI_DUMP_LOG:-$artifact_dir/uiautomator-dump.log}
 phase=bootstrap
-mark_phase() { phase=$1; echo "phase=$phase" >&2; }
+mark_phase() { phase=$1; echo "phase=$phase" >&2; echo "::notice title=FOTO smoke phase::$phase"; }
 ui_summary() {
   python3 - <<'PY'
 import xml.etree.ElementTree as ET
@@ -28,14 +61,14 @@ adb_diagnostics() {
   {
     echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     echo '--- adb devices ---'
-    "$adb_bin" devices -l || true
+    adb_run devices -l || true
     echo '--- adb state ---'
-    "$adb_bin" get-state || true
+    adb_run get-state || true
     echo '--- emulator properties ---'
-    "$adb_bin" shell getprop sys.boot_completed || true
-    "$adb_bin" shell getprop ro.kernel.qemu || true
+    adb_run shell getprop sys.boot_completed || true
+    adb_run shell getprop ro.kernel.qemu || true
     echo '--- logcat tail ---'
-    "$adb_bin" logcat -d -t 200 || true
+    adb_run logcat -d -t 200 || true
   } >"$diagnostics_file" 2>&1 || true
 }
 on_error() {
@@ -49,24 +82,83 @@ on_error() {
 trap on_error ERR
 wait_for_boot() {
   for _ in $(seq 1 90); do
-    if [[ "$($adb_bin get-state 2>/dev/null || true)" == "device" ]] && [[ "$($adb_bin shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then return 0; fi
+    if [[ "$(adb_run get-state 2>/dev/null || true)" == "device" ]] && [[ "$(adb_run shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then return 0; fi
     sleep 2
   done
   return 1
 }
 dump_ui() {
-  $adb_bin shell uiautomator dump /sdcard/window.xml >/dev/null
-  $adb_bin shell cat /sdcard/window.xml | tr -d '\r' > /tmp/noodle-window.xml
+  local attempt dump_log="$ui_dump_log" tmp_xml=/tmp/noodle-window.xml.tmp
+  for attempt in $(seq 1 "$ui_dump_attempts"); do
+    rm -f "$tmp_xml"
+    if adb_run shell uiautomator dump /sdcard/window.xml >"$dump_log" 2>&1 \
+      && ! grep -Eqi '(^|[[:space:]])(error|exception)(:|[[:space:]])' "$dump_log" \
+      && adb_run shell cat /sdcard/window.xml | tr -d '\r' >"$tmp_xml" \
+      && python3 - "$tmp_xml" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+if root.tag.rsplit('}', 1)[-1].casefold() != 'hierarchy':
+    raise SystemExit(f'unexpected UI root: {root.tag!r}')
+PY
+    then
+      mv "$tmp_xml" /tmp/noodle-window.xml
+      return 0
+    fi
+    echo "uiautomator dump failed (attempt $attempt/$ui_dump_attempts, phase=$phase): $(tr '\n' ' ' <"$dump_log" | cut -c1-400)" >&2
+    sleep "$ui_dump_retry_delay"
+  done
+  rm -f "$tmp_xml"
+  echo "uiautomator dump failed after $ui_dump_attempts attempts (phase=$phase)" >&2
+  return 1
 }
 find_bounds() {
   python3 - "$1" /tmp/noodle-window.xml <<'PY'
 import sys
 import xml.etree.ElementTree as ET
 needle = sys.argv[1].lower()
-for node in ET.parse(sys.argv[2]).getroot().iter('node'):
-    text = ' '.join((node.attrib.get(k) or '') for k in ('text', 'content-desc', 'resource-id')).lower()
-    if needle in text and node.attrib.get('bounds'):
+nodes = list(ET.parse(sys.argv[2]).getroot().iter('node'))
+def label(node):
+    return ' '.join((node.attrib.get(k) or '') for k in ('text', 'content-desc')).strip().lower()
+for exact_button in (True, False):
+    for node in nodes:
+        value = label(node)
+        klass = (node.attrib.get('class') or '').lower()
+        is_button = ('button' in klass or node.attrib.get('clickable') == 'true') and node.attrib.get('enabled', 'true') != 'false'
+        if node.attrib.get('bounds') and (value == needle if exact_button else needle in value) and (not exact_button or is_button):
+            print(node.attrib['bounds']); raise SystemExit(0)
+for node in nodes:
+    value = ' '.join((node.attrib.get(k) or '') for k in ('text', 'content-desc', 'resource-id')).lower()
+    if needle in value and node.attrib.get('bounds'):
         print(node.attrib['bounds']); break
+PY
+}
+find_action_bounds() {
+  python3 - "$1" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+needle = sys.argv[1].strip().casefold()
+root = ET.parse(sys.argv[2]).getroot()
+for node in root.iter('node'):
+    if node.attrib.get('enabled', 'true').casefold() != 'true':
+        continue
+    if node.attrib.get('clickable', 'false').casefold() != 'true':
+        continue
+    if not node.attrib.get('bounds'):
+        continue
+    klass = (node.attrib.get('class') or '').casefold()
+    if 'button' not in klass:
+        continue
+    labels = [
+        (node.attrib.get('text') or '').strip().casefold(),
+        (node.attrib.get('content-desc') or '').strip().casefold(),
+        (node.attrib.get('resource-id') or '').strip().casefold(),
+    ]
+    if needle in labels:
+        print(node.attrib['bounds'])
+        break
 PY
 }
 center() {
@@ -83,7 +175,7 @@ tap_text() {
   b=$(find_bounds "$1")
   test -n "$b" || { echo "UI element not found: $1" >&2; return 1; }
   read -r x y < <(center "$b")
-  $adb_bin shell input tap "$x" "$y"
+  adb_run shell input tap "$x" "$y"
 }
 tap_text_any() {
   local needle
@@ -92,91 +184,249 @@ tap_text_any() {
   done
   return 1
 }
-edit_text_at() {
-  local i=$1 value=$2 b x y
-  b=$(python3 - "$i" /tmp/noodle-window.xml <<'PY'
+tap_action_text() {
+  local b x y
+  b=$(find_action_bounds "$1")
+  test -n "$b" || { echo "Enabled clickable button not found: $1" >&2; return 1; }
+  read -r x y < <(center "$b")
+  adb_run shell input tap "$x" "$y"
+}
+tap_action_text_any() {
+  local needle
+  for needle in "$@"; do
+    if tap_action_text "$needle"; then return 0; fi
+  done
+  return 1
+}
+edit_text_count_at_least() {
+  local count=$1
+  python3 - "$count" /tmp/noodle-window.xml <<'PY'
 import sys
 import xml.etree.ElementTree as ET
-items = [n for n in ET.parse(sys.argv[2]).getroot().iter('node') if n.attrib.get('class') == 'android.widget.EditText']
-print(items[int(sys.argv[1])].attrib['bounds'])
+
+root = ET.parse(sys.argv[2]).getroot()
+items = []
+for node in root.iter('node'):
+    klass = (node.attrib.get('class') or '').casefold()
+    input_type = (node.attrib.get('input-type') or '').casefold()
+    if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        if node.attrib.get('enabled', 'true').casefold() == 'true':
+            items.append(node)
+raise SystemExit(0 if len(items) >= int(sys.argv[1]) else 1)
 PY
-)
-  read -r x y < <(center "$b")
-  $adb_bin shell input tap "$x" "$y"
-  $adb_bin shell input text "$value"
+}
+focused_edit_text() {
+  local bounds=$1
+  python3 - "$bounds" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[2]).getroot()
+for node in root.iter('node'):
+    if node.attrib.get('bounds') == sys.argv[1] and node.attrib.get('focused', 'false').casefold() == 'true':
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+clear_focused_edit_text() {
+  # MOVE_END followed by a bounded delete sequence clears a stale endpoint or
+  # autofilled credential without guessing coordinates or relying on clipboard.
+  local -a deletes
+  read -r -a deletes <<< "$(printf '67 %.0s' {1..128})"
+  adb_run shell input keyevent 123 "${deletes[@]}"
+}
+read_edit_text_at() {
+  python3 - "$1" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[2]).getroot()
+items = []
+for node in root.iter('node'):
+    klass = (node.attrib.get('class') or '').casefold()
+    input_type = (node.attrib.get('input-type') or '').casefold()
+    if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        if node.attrib.get('enabled', 'true').casefold() == 'true':
+            items.append(node)
+index = int(sys.argv[1])
+if index < len(items):
+    print(items[index].attrib.get('text', ''))
+PY
+}
+set_edit_text() {
+  local i=$1 value=$2 b x y timeout=${UI_WAIT_SECONDS:-90}
+  for attempt in 1 2 3; do
+    b=$(wait_for_edit_text "$i")
+    read -r x y < <(center "$b")
+    adb_run shell input tap "$x" "$y"
+    for _ in $(seq 1 20); do
+      dump_ui || true
+      if focused_edit_text "$b"; then break; fi
+      sleep 0.25
+    done
+    clear_focused_edit_text
+    # Send the complete value only after the focused state is observable. The
+    # readback catches Flutter's first-character loss and retries from empty.
+    adb_run shell input text "$value"
+    # Password fields are intentionally masked in the accessibility tree, so
+    # verify the observable text only for the endpoint/email field.
+    if [[ "$i" != 0 ]]; then
+      sleep 1
+      return 0
+    fi
+    for _ in $(seq 1 20); do
+      sleep 0.25
+      dump_ui || true
+      if [[ "$(read_edit_text_at "$i")" == "$value" ]]; then return 0; fi
+    done
+    echo "Input readback mismatch at index $i (attempt $attempt; expected=$value actual=$(read_edit_text_at "$i"))" >&2
+  done
+  echo "Failed to set EditText index $i with verified readback" >&2
+  return 1
+}
+edit_text_at() {
+  local i=$1 value=$2
+  set_edit_text "$i" "$value"
+}
+wait_for_edit_text() {
+  local i=$1 timeout=${UI_WAIT_SECONDS:-90} b
+  for _ in $(seq 1 "$timeout"); do
+    dump_ui || true
+    if b=$(python3 - "$i" /tmp/noodle-window.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[2]).getroot()
+items = []
+for node in root.iter('node'):
+    klass = (node.attrib.get('class') or '').lower()
+    input_type = (node.attrib.get('input-type') or '').lower()
+    if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        items.append(node)
+index = int(sys.argv[1])
+if index < len(items):
+    print(items[index].attrib['bounds'])
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+    ); then
+      printf '%s\n' "$b"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for EditText index $i (phase=$phase)" >&2
+  ui_summary >&2 || true
+  return 1
 }
 mark_phase wait_for_boot
 wait_for_boot
 mark_phase install
-"$adb_bin" start-server >/dev/null 2>&1 || true
-$adb_bin install -r "$apk_path"
-mark_phase clear_and_launch
-$adb_bin shell pm clear "$package_name" >/dev/null
-$adb_bin shell monkey -p "$package_name" 1 >"$artifact_dir/launch.log"
+adb_run start-server >/dev/null 2>&1 || true
+adb_run install -r "$apk_path"
+mark_phase clear_data
+# A package-manager clear can wait on a stale process after an emulator retry.
+# The emulator is disposable, so a bounded best-effort clear is safer than
+# spending the whole ADB timeout before trying the actual launcher. The launch
+# phase remains strict and will still fail if the installed package is absent.
+adb_run shell am force-stop "$package_name" >/dev/null 2>&1 || true
+if ! adb_clear shell pm clear "$package_name" >"$artifact_dir/pm-clear.log" 2>&1; then
+  echo "warning: pm clear did not complete within ${adb_clear_timeout}s; continuing with a disposable emulator" >&2
+fi
+grant_media_permissions
+mark_phase launch
+adb_run shell monkey -p "$package_name" 1 >"$artifact_dir/launch.log"
 sleep 5
+if dump_ui; then
+  tap_text_any 'Allow all' 'Allow limited access' || true
+  sleep 1
+fi
 mark_phase server_endpoint_dump
 dump_ui
 mark_phase server_endpoint_activity
-$adb_bin shell dumpsys activity activities | grep -q "$package_name"
+adb_run shell dumpsys activity activities | grep -q "$package_name"
 mark_phase server_endpoint_field
 edit_text_at 0 "$server_url"
 mark_phase enter_server_submit
-$adb_bin shell input keyevent 66
+if ! tap_action_text_any 'Next' 'Continue'; then
+  # The endpoint TextField advertises IME_ACTION_NEXT; retain the semantic
+  # keyboard submission as a fallback for Flutter builds that omit the button
+  # from the Android hierarchy.
+  adb_run shell input keyevent 66
+fi
 sleep 1
 dump_ui
-tap_text_any 'Next' 'Continue' || true
 mark_phase wait_login
-for _ in $(seq 1 30); do sleep 2; dump_ui; grep -qi Email /tmp/noodle-window.xml && break; done
-grep -qi Email /tmp/noodle-window.xml
+has_login_fields() {
+  python3 - <<'PY'
+import xml.etree.ElementTree as ET
+root = ET.parse('/tmp/noodle-window.xml').getroot()
+fields = []
+for node in root.iter('node'):
+    klass = (node.attrib.get('class') or '').lower()
+    input_type = (node.attrib.get('input-type') or '').lower()
+    if ('edittext' in klass or input_type not in ('', 'none', '0')) and node.attrib.get('bounds'):
+        if node.attrib.get('enabled', 'true').casefold() == 'false':
+            continue
+        fields.append(node)
+print('yes' if len(fields) >= 2 else 'no')
+PY
+}
+login_opened=false
+for _ in $(seq 1 30); do
+  sleep 2
+  dump_ui
+  if grep -qi Email /tmp/noodle-window.xml || [[ "$(has_login_fields)" == yes ]]; then break; fi
+  if [[ "$login_opened" == false ]] && tap_action_text_any 'Login' 'Log in'; then
+    login_opened=true
+    adb_run shell input keyevent 66 || true
+  fi
+done
+grep -qi Email /tmp/noodle-window.xml || [[ "$(has_login_fields)" == yes ]]
 mark_phase credentials
 edit_text_at 0 'admin@immich.cloud'
 edit_text_at 1 'password'
-tap_text_any 'Login' 'Log in'
+tap_action_text_any 'Login' 'Log in'
 sleep 12
 mark_phase authenticated
 dump_ui
-$adb_bin shell dumpsys activity activities | grep -q de.opennoodle.gallery
+adb_run shell dumpsys activity activities | grep -q de.opennoodle.gallery
 for _ in $(seq 1 30); do
   grep -Eq '2020|2024' /tmp/noodle-window.xml && break
   sleep 2
   dump_ui
 done
 grep -Eq '2020|2024' /tmp/noodle-window.xml
-$adb_bin shell screencap -p /sdcard/foto-online.png
-$adb_bin pull /sdcard/foto-online.png "$artifact_dir/online.png" >/dev/null
+adb_run shell screencap -p /sdcard/foto-online.png
+adb_run pull /sdcard/foto-online.png "$artifact_dir/online.png" >/dev/null
 
 assert_rendered_capture() {
-  local file=$1 colors
-  test -s "$file"
-  command -v identify >/dev/null
-  colors=$(identify -format '%k' "$file")
-  test "$colors" -gt 8
+  python3 tools/original-noodle-gallery/assert_offline_pixels.py "$1"
 }
 assert_rendered_capture "$artifact_dir/online.png"
 
 # The Drift catalog and durable thumbnails must survive a process restart when
 # both emulator transports are disabled.
-$adb_bin shell svc wifi disable
-$adb_bin shell svc data disable
+adb_run shell svc wifi disable
+adb_run shell svc data disable
 mark_phase offline_restart
-$adb_bin shell am force-stop "$package_name"
-$adb_bin shell monkey -p "$package_name" 1 >"$artifact_dir/offline-launch.log"
+adb_run shell am force-stop "$package_name"
+adb_run shell monkey -p "$package_name" 1 >"$artifact_dir/offline-launch.log"
 sleep 12
 dump_ui
-$adb_bin shell dumpsys activity activities | grep -q "$package_name"
+adb_run shell dumpsys activity activities | grep -q "$package_name"
 for _ in $(seq 1 30); do
   grep -Eq '2020|2024' /tmp/noodle-window.xml && break
   sleep 2
   dump_ui
 done
 grep -Eq '2020|2024' /tmp/noodle-window.xml
-$adb_bin shell screencap -p /sdcard/foto-offline.png
-$adb_bin pull /sdcard/foto-offline.png "$artifact_dir/offline.png" >/dev/null
-! grep -Eqi 'Could not load value|Enable backup|Something went wrong' /tmp/noodle-window.xml
+adb_run shell screencap -p /sdcard/foto-offline.png
+adb_run pull /sdcard/foto-offline.png "$artifact_dir/offline.png" >/dev/null
+assert_no_offline_error /tmp/noodle-window.xml
 assert_rendered_capture "$artifact_dir/offline.png"
 mark_phase complete
-$adb_bin shell svc wifi enable || true
-$adb_bin shell svc data enable || true
+adb_run shell svc wifi enable || true
+adb_run shell svc data enable || true
 echo "FOTO offline emulator smoke passed: login, synced timeline, force-stop, offline relaunch, and local catalog render."
 trap - ERR
 

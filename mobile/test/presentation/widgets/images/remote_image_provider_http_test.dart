@@ -147,6 +147,123 @@ void main() {
     expect(base.hashCode, full().hashCode);
   });
 
+  test('offline Timeline preview shows a durable thumbnail while the backend request is still pending', () async {
+    // Cold Flutter image cache; the native cache owns only the warmed thumbnail.
+    // A connected Wi-Fi transport can still have an unreachable Backend, so its
+    // preview request need not fail promptly. Pixels must not wait for it.
+    final pendingPreview = Completer<Object?>();
+    response = (args) async {
+      final size = Uri.parse(args[0]! as String).queryParameters['size'];
+      if (size == 'thumbnail') {
+        expect(args.sublist(3, 5), [250, 250], reason: 'the provisional image keeps its small decode budget');
+      }
+      return size == 'thumbnail' ? await encodedImage() : await pendingPreview.future;
+    };
+    final provider = RemoteImageProvider.thumbnail(
+      assetId: 'offline-id',
+      thumbhash: 'persisted-revision',
+      remoteMediaSize: AssetMediaSize.preview,
+      decodeSize: const Size.square(320),
+    );
+    final firstImage = Completer<ImageInfo>();
+    final stream = provider.resolve(ImageConfiguration.empty);
+    final images = <ImageInfo>[];
+    final listener = ImageStreamListener(
+      (image, _) {
+        images.add(image);
+        if (!firstImage.isCompleted) {
+          firstImage.complete(image);
+        }
+      },
+      onError: (Object error, StackTrace? stack) {
+        if (!firstImage.isCompleted) {
+          firstImage.completeError(error, stack);
+        }
+      },
+    );
+    stream.addListener(listener);
+    try {
+      final image = await firstImage.future.timeout(const Duration(seconds: 2));
+      expect(image.image.width, greaterThan(0));
+      expect(pendingPreview.isCompleted, isFalse, reason: 'cached pixels precede any network response');
+      expect(requested.any((url) => Uri.parse(url).queryParameters['size'] == 'thumbnail'), isTrue);
+    } finally {
+      stream.removeListener(listener);
+      provider.cancel();
+      pendingPreview.complete([null]);
+      for (final image in images) {
+        image.dispose();
+      }
+    }
+  });
+
+  test('immediate offline preview failure cannot discard a slower durable thumbnail', () async {
+    response = (args) async {
+      if (Uri.parse(args[0]! as String).queryParameters['size'] == 'preview') {
+        return ['network-unavailable', 'Synthetic offline refusal', null];
+      }
+      // Disk read/decode may finish after the native socket has already failed.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      return encodedImage();
+    };
+    final provider = RemoteImageProvider.thumbnail(
+      assetId: 'offline-cache-race',
+      thumbhash: 'persisted-revision',
+      remoteMediaSize: AssetMediaSize.preview,
+      decodeSize: const Size.square(320),
+    );
+    final image = await resolve(provider).timeout(const Duration(seconds: 2));
+    expect(image.image.width, greaterThan(0));
+    image.dispose();
+  });
+
+  test('a delayed smaller thumbnail cannot replace an already decoded preview', () async {
+    final delayedThumbnail = Completer<Object?>();
+    List<Object?> frame(int width) {
+      final pointer = malloc<Uint8>(width * width * 4);
+      pointer.asTypedList(width * width * 4).fillRange(0, width * width * 4, 255);
+      return [
+        <Object?, Object?>{'pointer': pointer.address, 'width': width, 'height': width, 'rowBytes': width * 4},
+      ];
+    }
+
+    response = (args) async => Uri.parse(args[0]! as String).queryParameters['size'] == 'thumbnail'
+        ? await delayedThumbnail.future
+        : frame(16);
+    final provider = RemoteImageProvider.thumbnail(
+      assetId: 'preview-first',
+      thumbhash: 'revision',
+      remoteMediaSize: AssetMediaSize.preview,
+    );
+    final stream = provider.resolve(ImageConfiguration.empty);
+    final images = <ImageInfo>[];
+    final first = Completer<void>();
+    final listener = ImageStreamListener((image, _) {
+      images.add(image);
+      if (!first.isCompleted) {
+        first.complete();
+      }
+    });
+    stream.addListener(listener);
+    try {
+      await first.future.timeout(const Duration(seconds: 2));
+      expect(images.map((image) => image.image.width), [16]);
+      expect(requested.any((url) => Uri.parse(url).queryParameters['size'] == 'thumbnail'), isTrue);
+      delayedThumbnail.complete(frame(8));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(images.map((image) => image.image.width), [16], reason: 'late low resolution cannot downgrade the tile');
+    } finally {
+      stream.removeListener(listener);
+      provider.cancel();
+      if (!delayedThumbnail.isCompleted) {
+        delayedThumbnail.complete([null]);
+      }
+      for (final image in images) {
+        image.dispose();
+      }
+    }
+  });
+
   test('a changed remote media revision invalidates native original and preview URLs', () {
     final old = full(revision: 'before');
     final refreshed = full(revision: 'after');

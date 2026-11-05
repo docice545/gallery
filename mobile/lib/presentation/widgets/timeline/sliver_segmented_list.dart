@@ -24,6 +24,8 @@ class SliverSegmentedList extends SliverMultiBoxAdaptorWidget {
 /// Modified version of [RenderSliverFixedExtentBoxAdaptor] to use precomputed offsets
 class RenderSliverTimelineBoxAdaptor extends RenderSliverMultiBoxAdaptor {
   List<Segment> _segments;
+  double? _previousContentStart;
+  double _previousScrollOffset = 0;
 
   set segments(List<Segment> updatedSegments) {
     if (_segments.equals(updatedSegments)) {
@@ -50,6 +52,21 @@ class RenderSliverTimelineBoxAdaptor extends RenderSliverMultiBoxAdaptor {
 
   @override
   void performLayout() {
+    final previousStart = _previousContentStart;
+    final wasInsideGrid = _previousScrollOffset > 0;
+    _previousContentStart = constraints.precedingScrollExtent;
+    _previousScrollOffset = constraints.scrollOffset;
+    if (previousStart != null && wasInsideGrid) {
+      final delta = constraints.precedingScrollExtent - previousStart;
+      if (delta.abs() > precisionErrorTolerance) {
+        // Memories/candidate cards may arrive, resize or disappear after the
+        // local grid is already usable. Preserve the photo under the viewport
+        // in this layout pass, including child-only rebuilds of that header.
+        // At the beginning keep offset zero so newly available cards are seen.
+        geometry = SliverGeometry(scrollOffsetCorrection: delta);
+        return;
+      }
+    }
     childManager.didStartLayout();
     // Assume initially that we have enough children to fill the viewport/cache area.
     childManager.setDidUnderflow(false);

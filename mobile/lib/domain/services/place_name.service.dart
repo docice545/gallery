@@ -8,8 +8,9 @@ import 'package:logging/logging.dart';
 typedef PlaceNameLookup = Future<String?> Function(Place place, String languageTag);
 
 /// Optional display-name enrichment. Never changes the source city, asset
-/// membership, coordinates or EXIF. Only mounted rows request names. The queue
-/// is serial and skips rows that were disposed before their turn.
+/// membership, coordinates or EXIF. A bounded opening preview and explicit detail
+/// entry may request names; scrolling tiles and Timeline never do. The queue
+/// is serial and skips consumers that were disposed before their turn.
 class PlaceNameService {
   PlaceNameService({
     required this.namespace,

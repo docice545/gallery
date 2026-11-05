@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -9,8 +11,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY requirements.txt ./
-RUN pip install --no-cache-dir torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --no-cache-dir -r requirements.txt \
+RUN --mount=type=secret,id=proxy_ca,required=true \
+    PIP_CERT=/run/secrets/proxy_ca pip install --no-cache-dir torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu \
+    && PIP_CERT=/run/secrets/proxy_ca pip install --no-cache-dir -r requirements.txt \
     && groupadd --gid 1000 inpainting \
     && useradd --uid 1000 --gid 1000 --no-create-home inpainting
 COPY --chown=1000:1000 gallery_inpainting ./gallery_inpainting

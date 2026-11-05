@@ -3,9 +3,9 @@ import 'dart:math' as math;
 
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/domain/models/timeline_grouping.model.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/providers/timeline/timeline_grouping.provider.dart';
 
 const timelineOverviewModeSelectorOrder = <TimelineOverviewMode>[
@@ -53,7 +53,7 @@ class TimelineGroupingSelector extends ConsumerWidget {
         selected: selected,
         enabled: enabled,
         onSelected: (mode) async {
-          unawaited(HapticFeedback.selectionClick());
+          ref.read(hapticFeedbackProvider.notifier).selectionClick();
           await ref.read(timelineOverviewModeProvider.notifier).set(mode);
         },
       );
@@ -91,7 +91,7 @@ class TimelineGroupingSelector extends ConsumerWidget {
                           selected: selected == mode,
                           enabled: enabled,
                           onTap: () async {
-                            unawaited(HapticFeedback.selectionClick());
+                            ref.read(hapticFeedbackProvider.notifier).selectionClick();
                             await ref.read(timelineOverviewModeProvider.notifier).set(mode);
                           },
                         ),

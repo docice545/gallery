@@ -12,6 +12,7 @@ import 'package:immich_mobile/constants/aspect_ratios.dart';
 import 'package:immich_mobile/domain/models/annotation.model.dart';
 import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/asset_edit.model.dart';
+import 'package:immich_mobile/domain/services/edited_copy.service.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/generated/translations.g.dart';
 import 'package:immich_mobile/presentation/pages/edit/annotation_canvas.dart';
@@ -20,20 +21,25 @@ import 'package:immich_mobile/presentation/pages/edit/editor_mode.dart';
 import 'package:immich_mobile/presentation/pages/edit/editor_viewport.dart';
 import 'package:immich_mobile/presentation/pages/edit/magic_eraser.page.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/adjustment_panel.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/editor_chrome.dart';
+import 'package:immich_mobile/presentation/pages/edit/widgets/editor_dock.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filter_panel.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/filtered_image.dart';
 import 'package:immich_mobile/presentation/pages/edit/widgets/markup_controls.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon_mapping.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
-import 'package:immich_mobile/providers/theme.provider.dart';
+import 'package:immich_mobile/providers/background_sync.provider.dart';
+import 'package:immich_mobile/providers/haptic_feedback.provider.dart';
 import 'package:immich_mobile/repositories/file_media.repository.dart';
-import 'package:immich_mobile/theme/theme_data.dart';
 import 'package:immich_mobile/utils/annotation_editor.dart';
 import 'package:immich_mobile/utils/edited_image_exporter.dart';
 import 'package:immich_mobile/utils/editor_geometry.dart';
 import 'package:immich_mobile/utils/image_url_builder.dart';
 import 'package:immich_mobile/widgets/common/immich_toast.dart';
-import 'package:immich_ui/immich_ui.dart';
+import 'package:logging/logging.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:photo_manager/photo_manager.dart' show AssetEntity;
 
 export 'editor_mode.dart';
 
@@ -50,6 +56,7 @@ class EditImagePage extends ConsumerStatefulWidget {
 }
 
 class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProviderStateMixin {
+  final _log = Logger('MagicEraserCopySync');
   final _annotations = AnnotationEditor();
   late EditorMode _mode;
   AnnotationTool _tool = AnnotationTool.pen;
@@ -59,10 +66,13 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   String? _selectedId;
   bool _cancelSave = false;
   bool _writingCopy = false;
+  AssetEntity? _pendingCopy;
+  EditedCopyService? _pendingImporter;
   bool _settingsExpanded = false;
   bool _straightening = false;
   bool _magicEraserOpen = false;
   final _previewKey = GlobalKey();
+  Offset? _lastPhotoPoint;
   Completer<void>? _cancelLoad;
   AnnotationElement _textStyle = AnnotationElement(
     id: 'text-style',
@@ -130,83 +140,101 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   }
 
   Future<void> _layers() async {
-    await showModalBottomSheet<void>(
+    await showDialog<void>(
       context: context,
-      backgroundColor: const Color(0xff191919),
-      builder: (context) => StatefulBuilder(
-        builder: (context, update) => SafeArea(
-          child: SizedBox(
-            height: 360,
-            child: Column(
-              children: [
-                Text(context.tr('editor_layers'), style: const TextStyle(color: Colors.white)),
-                Expanded(
-                  child: ListView(
+      builder: (context) => Theme(
+        data: Theme.of(context),
+        child: Dialog(
+          alignment: Alignment.bottomCenter,
+          insetPadding: EdgeInsets.fromLTRB(12, 12, 12, MediaQuery.paddingOf(context).bottom + 64),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: StatefulBuilder(
+              builder: (context, update) => SafeArea(
+                child: SizedBox(
+                  height: 216,
+                  child: Column(
                     children: [
-                      for (final element in _annotations.elements.reversed)
-                        ListTile(
-                          key: ValueKey('editor-layer-${element.id}'),
-                          selected: _selectedId == element.id,
-                          textColor: Colors.white,
-                          title: Text(
-                            element.isText
-                                ? element.text!
-                                : element.isSticker
-                                ? context.tr('editor_stickers')
-                                : context.t.editor_draw,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () {
-                            setState(() {
-                              _selectedId = element.id;
-                              _mode = element.isText
-                                  ? EditorMode.text
-                                  : element.isSticker
-                                  ? EditorMode.stickers
-                                  : EditorMode.draw;
-                              _tool = AnnotationTool.move;
-                            });
-                            Navigator.pop(context);
-                          },
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                tooltip: context.tr('editor_layer_up'),
-                                icon: const Icon(Icons.arrow_upward),
-                                onPressed: () {
-                                  _annotations.reorder(element.id, _annotations.elements.indexOf(element) + 1);
-                                  _syncAnnotationDirty();
-                                  update(() {});
+                      Text(context.tr('editor_layers')),
+                      Expanded(
+                        child: ListView(
+                          children: [
+                            for (final element in _annotations.elements.reversed)
+                              ListTile(
+                                key: ValueKey('editor-layer-${element.id}'),
+                                selected: _selectedId == element.id,
+                                title: Text(
+                                  element.isText
+                                      ? element.text!
+                                      : element.isSticker
+                                      ? context.tr('editor_stickers')
+                                      : context.t.editor_draw,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () {
+                                  setState(() {
+                                    _selectedId = element.id;
+                                    _mode = element.isText
+                                        ? EditorMode.text
+                                        : element.isSticker
+                                        ? EditorMode.stickers
+                                        : EditorMode.draw;
+                                    _tool = AnnotationTool.move;
+                                  });
+                                  Navigator.pop(context);
                                 },
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      tooltip: context.tr('editor_layer_up'),
+                                      icon: FotoIcon(
+                                        kind: FotoIconKind.layerUp,
+                                        semanticLabel: context.tr('editor_layer_up'),
+                                      ),
+                                      onPressed: () {
+                                        _annotations.reorder(element.id, _annotations.elements.indexOf(element) + 1);
+                                        _syncAnnotationDirty();
+                                        update(() {});
+                                      },
+                                    ),
+                                    IconButton(
+                                      tooltip: context.tr('editor_layer_down'),
+                                      icon: FotoIcon(
+                                        kind: FotoIconKind.layerDown,
+                                        semanticLabel: context.tr('editor_layer_down'),
+                                      ),
+                                      onPressed: () {
+                                        _annotations.reorder(element.id, _annotations.elements.indexOf(element) - 1);
+                                        _syncAnnotationDirty();
+                                        update(() {});
+                                      },
+                                    ),
+                                    IconButton(
+                                      tooltip: context.tr('editor_delete_layer'),
+                                      icon: FotoIcon(
+                                        kind: FotoIconKind.trash,
+                                        semanticLabel: context.tr('editor_delete_layer'),
+                                        state: FotoIconState.destructive,
+                                      ),
+                                      onPressed: () {
+                                        _annotations.remove(element.id);
+                                        _syncAnnotationDirty();
+                                        update(() {});
+                                        setState(() => _selectedId = null);
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
-                              IconButton(
-                                tooltip: context.tr('editor_layer_down'),
-                                icon: const Icon(Icons.arrow_downward),
-                                onPressed: () {
-                                  _annotations.reorder(element.id, _annotations.elements.indexOf(element) - 1);
-                                  _syncAnnotationDirty();
-                                  update(() {});
-                                },
-                              ),
-                              IconButton(
-                                tooltip: context.tr('editor_delete_layer'),
-                                icon: const Icon(Icons.delete_outline),
-                                onPressed: () {
-                                  _annotations.remove(element.id);
-                                  _syncAnnotationDirty();
-                                  update(() {});
-                                  setState(() => _selectedId = null);
-                                },
-                              ),
-                            ],
-                          ),
+                          ],
                         ),
+                      ),
                     ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -218,12 +246,12 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   void initState() {
     super.initState();
     _annotations.replaceAll(ref.read(editorStateProvider).annotations);
-    _mode = widget.asset?.isEditable ?? true ? EditorMode.crop : EditorMode.magicEraser;
+    _mode = widget.asset?.isStillCopyEditable ?? true ? EditorMode.crop : EditorMode.magicEraser;
     _settingsExpanded = false;
   }
 
   Future<void> _openMagicEraser() async {
-    if (_magicEraserOpen || ref.read(editorStateProvider).isApplyingEdits) {
+    if (_magicEraserOpen || _pendingCopy != null || ref.read(editorStateProvider).isApplyingEdits) {
       return;
     }
     _magicEraserOpen = true;
@@ -234,7 +262,14 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         }
         final asset = widget.asset;
         if (asset != null) {
-          await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => MagicEraserPage(asset: asset)));
+          final savedAssetId = await Navigator.of(
+            context,
+          ).push<String>(MaterialPageRoute<String>(builder: (_) => MagicEraserPage(asset: asset)));
+          if (savedAssetId != null && savedAssetId.isNotEmpty && mounted) {
+            // A server save is already committed. Refresh the normal Drift
+            // stream independently, without blocking the editor or re-uploading.
+            unawaited(_refreshMagicEraserLibrary());
+          }
           return;
         }
         final retry = await showDialog<bool>(
@@ -261,6 +296,23 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     }
   }
 
+  Future<void> _refreshMagicEraserLibrary() async {
+    try {
+      // enqueue also requests one follow-up pass if the current stream took
+      // its checkpoint before the copy was saved. Its Future may represent
+      // that existing pass, so success is not proof the new ID is imported yet.
+      if (await ref.read(backgroundSyncProvider).syncRemote(enqueue: true)) {
+        return;
+      }
+      _log.warning('Server copy saved; remote library refresh did not complete');
+    } catch (error, stack) {
+      _log.warning('Server copy saved; remote library refresh failed', error, stack);
+    }
+    if (mounted) {
+      ImmichToast.show(context: context, msg: context.t.magic_eraser_saved_sync_pending, toastType: ToastType.info);
+    }
+  }
+
   void _cancelExport() {
     _cancelSave = true;
     if (!(_cancelLoad?.isCompleted ?? true)) {
@@ -280,68 +332,102 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
     }
     _cancelSave = false;
     _cancelLoad = Completer<void>();
-    _writingCopy = false;
+    _writingCopy = _pendingCopy != null;
     ref.read(editorStateProvider.notifier).setIsEditing(true);
     String? path;
     ui.Image? source;
     ui.Image? rendered;
-    var saved = false;
+    var imported = false;
     try {
-      final asset = widget.asset;
-      if (asset?.width != null && asset?.height != null) {
-        EditedImageExporter.validateDimensions(asset!.width!, asset.height!);
-      }
-      source = await _loadOriginalImage();
-      if (!mounted || _cancelSave) {
-        return;
-      }
-      final state = ref.read(editorStateProvider);
-      rendered = await EditedImageExporter.render(
-        source: source,
-        crop: state.crop,
-        rotationDegrees: state.rotationAngle,
-        straightenDegrees: state.straightenDegrees,
-        flipHorizontal: state.flipHorizontal,
-        flipVertical: state.flipVertical,
-        annotations: _annotations.elements,
-        adjustments: state.adjustments,
-        selectedFilterIndex: state.selectedFilterIndex,
-        filterIntensity: state.filterIntensity,
-      );
-      if (!mounted || _cancelSave) {
-        return;
-      }
-      final bytes = await EditedImageExporter.encodePng(rendered);
-      if (!mounted || _cancelSave) {
-        return;
-      }
-      final directory = await getTemporaryDirectory();
-      path = '${directory.path}/gallery-edit-${DateTime.now().microsecondsSinceEpoch}.png';
-      await File(path).writeAsBytes(bytes, flush: true);
-      if (!mounted || _cancelSave) {
-        return;
-      }
-      setState(() => _writingCopy = true);
-      final copy = await ref
-          .read(fileMediaRepositoryProvider)
-          .saveImageWithFile(
+      // Resolve both services before MediaStore creates anything. A late native
+      // result can then be indexed even if this editor was removed meanwhile.
+      final media = ref.read(fileMediaRepositoryProvider);
+      final EditedCopyService importer = _pendingImporter ?? ref.read(editedCopyServiceProvider);
+      _pendingImporter = importer;
+      if (_pendingCopy == null) {
+        final asset = widget.asset;
+        if (asset?.width != null && asset?.height != null) {
+          EditedImageExporter.validateDimensions(asset!.width!, asset.height!);
+        }
+        source = await _loadOriginalImage();
+        if (!mounted || _cancelSave) {
+          return;
+        }
+        final state = ref.read(editorStateProvider);
+        rendered = await EditedImageExporter.render(
+          source: source,
+          crop: state.crop,
+          rotationDegrees: state.rotationAngle,
+          straightenDegrees: state.straightenDegrees,
+          flipHorizontal: state.flipHorizontal,
+          flipVertical: state.flipVertical,
+          annotations: _annotations.elements,
+          adjustments: state.adjustments,
+          selectedFilterIndex: state.selectedFilterIndex,
+          filterIntensity: state.filterIntensity,
+        );
+        if (!mounted || _cancelSave) {
+          return;
+        }
+        final bytes = await EditedImageExporter.encodePng(rendered);
+        if (!mounted || _cancelSave) {
+          return;
+        }
+        final directory = await getTemporaryDirectory();
+        path = '${directory.path}/gallery-edit-${DateTime.now().microsecondsSinceEpoch}.png';
+        await File(path).writeAsBytes(bytes, flush: true);
+        if (!mounted || _cancelSave) {
+          return;
+        }
+        setState(() => _writingCopy = true);
+        AssetEntity? copy;
+        try {
+          copy = await media.saveImageWithFile(
             path,
             title: 'gallery-edit-${DateTime.now().millisecondsSinceEpoch}.png',
             relativePath: 'DCIM/Noodle Gallery',
+            preserveCreatedAssetOnFailure: true,
           );
-      if (copy == null) {
-        throw StateError('Unable to save edited copy');
+        } on SavedMediaImportException catch (error, stack) {
+          // A file exists even when its MIME update failed. The importer first
+          // records this exact ID durably, then retries metadata and indexing.
+          copy = error.asset;
+          _log.warning('Edited copy ${copy.id} needs metadata completion', error.cause, stack);
+        }
+        if (copy == null) {
+          throw StateError('Unable to save edited copy');
+        }
+        _pendingCopy = copy;
+        if (mounted) {
+          setState(() {});
+        }
       }
-      saved = true;
-    } catch (error) {
+      final copy = _pendingCopy!;
+      await importer.importSavedCopy(copy);
+      _pendingCopy = null;
+      imported = true;
+    } catch (error, stack) {
+      final copy = _pendingCopy;
+      _log.warning(
+        copy == null
+            ? 'Edited image export failed before a copy was returned'
+            : 'Edited copy ${copy.id} import pending',
+        error,
+        stack,
+      );
       if (mounted && !_cancelSave) {
         ImmichToast.show(
           context: context,
-          msg: context.tr(error is ImageExportLimitException ? 'editor_export_too_large' : 'editor_export_failed'),
-          toastType: ToastType.error,
+          msg: copy != null
+              ? context.t.editor_copy_saved_import_pending
+              : context.tr(error is ImageExportLimitException ? 'editor_export_too_large' : 'editor_export_failed'),
+          toastType: copy == null ? ToastType.error : ToastType.info,
         );
       }
     } finally {
+      if (_pendingCopy == null) {
+        _pendingImporter = null;
+      }
       source?.dispose();
       rendered?.dispose();
       if (path != null) {
@@ -355,7 +441,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
         ref.read(editorStateProvider.notifier).setIsEditing(false);
       }
     }
-    if (saved && mounted) {
+    if (imported && mounted) {
       ImmichToast.show(context: context, msg: context.tr('editor_save_copy_device'), toastType: ToastType.success);
       Navigator.of(context).pop();
     }
@@ -475,7 +561,8 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
       }
     });
     final notifier = ref.read(editorStateProvider.notifier);
-    final allowTransformEdits = widget.asset?.isEditable ?? true;
+    final allowTransformEdits = widget.asset?.isStillCopyEditable ?? true;
+    final documentLocked = state.isApplyingEdits || _pendingCopy != null;
 
     return PopScope(
       canPop: !hasUnsavedEdits && !state.isApplyingEdits,
@@ -492,43 +579,53 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
           Navigator.of(context).pop();
         }
       },
-      child: Theme(
-        data: getThemeData(colorScheme: ref.watch(immichThemeProvider).dark, locale: context.locale),
+      child: EditorChrome(
         child: Builder(
           builder: (context) => Scaffold(
             appBar: AppBar(
-              toolbarHeight: _editorHeaderHeight(context),
-              backgroundColor: Colors.black,
+              toolbarHeight: kToolbarHeight,
+              systemOverlayStyle: editorSystemUiStyle(context),
+              backgroundColor: Theme.of(context).colorScheme.surface,
               leadingWidth: 48,
               leading: IconButton(
                 key: const Key('editor-back'),
                 tooltip: context.t.back,
                 onPressed: state.isApplyingEdits ? null : () => Navigator.of(context).maybePop(),
-                icon: const Icon(Icons.arrow_back),
+                icon: FotoIcon(
+                  kind: FotoIconKind.back,
+                  semanticLabel: context.t.back,
+                  state: state.isApplyingEdits ? FotoIconState.disabled : FotoIconState.normal,
+                ),
               ),
               actions: [
                 IconButton(
                   key: const Key('editor-header-undo'),
                   tooltip: context.t.undo,
-                  onPressed: !state.isApplyingEdits && state.canUndo ? notifier.undo : null,
-                  icon: const Icon(Icons.undo),
+                  onPressed: !documentLocked && state.canUndo ? notifier.undo : null,
+                  icon: FotoIcon(
+                    kind: FotoIconKind.undo,
+                    semanticLabel: context.t.undo,
+                    state: !documentLocked && state.canUndo ? FotoIconState.normal : FotoIconState.disabled,
+                  ),
                 ),
                 IconButton(
                   key: const Key('editor-header-redo'),
                   tooltip: context.t.magic_eraser_redo,
-                  onPressed: !state.isApplyingEdits && state.canRedo ? notifier.redo : null,
-                  icon: const Icon(Icons.redo),
+                  onPressed: !documentLocked && state.canRedo ? notifier.redo : null,
+                  icon: FotoIcon(
+                    kind: FotoIconKind.redo,
+                    semanticLabel: context.t.magic_eraser_redo,
+                    state: !documentLocked && state.canRedo ? FotoIconState.normal : FotoIconState.disabled,
+                  ),
                 ),
-                _SaveEditsButton(onSave: _saveCopy, enabled: allowTransformEdits),
+                _SaveEditsButton(onSave: _saveCopy, enabled: allowTransformEdits, retryImport: _pendingCopy != null),
               ],
             ),
-            backgroundColor: Colors.black,
+            backgroundColor: Theme.of(context).colorScheme.surface,
             body: SafeArea(
               bottom: false,
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final sidePanel =
-                      MediaQuery.orientationOf(context) == Orientation.landscape && constraints.maxWidth >= 480;
                   final preview = allowTransformEdits
                       ? _EditorPreview(
                           key: _previewKey,
@@ -552,13 +649,12 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                       : Center(child: InteractiveViewer(child: widget.image));
                   final panel = _EditorBottomPanel(
                     source: widget.image.image,
+                    avoidPoint: () => _lastPhotoPoint,
                     maxHeight: constraints.maxHeight,
-                    sidePanel: sidePanel,
                     settingsExpanded: _settingsExpanded,
                     onToggleSettings: () => setState(() => _settingsExpanded = !_settingsExpanded),
                     mode: _mode,
                     allowTransformEdits: allowTransformEdits,
-                    asset: widget.asset,
                     straightening: _straightening,
                     onStraightening: (value) => setState(() => _straightening = value),
                     onLayers: _layers,
@@ -573,13 +669,16 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                     onSticker: _addSticker,
                     onReset: _reset,
                     onMode: (mode) {
+                      if (mode != _mode) {
+                        ref.read(hapticFeedbackProvider.notifier).selectionClick();
+                      }
                       if (mode == EditorMode.magicEraser) {
                         unawaited(_openMagicEraser());
                         return;
                       }
                       setState(() {
                         _mode = mode;
-                        _settingsExpanded = mode != EditorMode.draw && mode != EditorMode.shapes;
+                        _settingsExpanded = true;
                         _tool = mode.defaultTool;
                         _selectedId = null;
                       });
@@ -600,21 +699,20 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                     onGestureEnd: notifier.endGesture,
                   );
                   final content = AbsorbPointer(
-                    absorbing: state.isApplyingEdits,
-                    child: sidePanel
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(child: SafeArea(top: false, child: preview)),
-                              SizedBox(width: min(320, max(272, constraints.maxWidth * .38)), child: panel),
-                            ],
-                          )
-                        : Column(
-                            children: [
-                              Expanded(child: preview),
-                              if (allowTransformEdits || widget.asset != null) panel,
-                            ],
+                    absorbing: documentLocked,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: Listener(
+                            onPointerDown: (event) => _lastPhotoPoint = event.position,
+                            onPointerMove: (event) => _lastPhotoPoint = event.position,
+                            onPointerUp: (event) => _lastPhotoPoint = event.position,
+                            child: preview,
                           ),
+                        ),
+                        if (allowTransformEdits || widget.asset != null) panel,
+                      ],
+                    ),
                   );
                   return Stack(
                     children: [
@@ -624,7 +722,7 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
                           top: 8,
                           right: 8,
                           child: Material(
-                            color: const Color(0xff191919),
+                            color: Theme.of(context).colorScheme.surfaceContainerHigh,
                             borderRadius: BorderRadius.circular(24),
                             child: TextButton(
                               key: const Key('editor-cancel-export'),
@@ -645,15 +743,14 @@ class _EditImagePageState extends ConsumerState<EditImagePage> with TickerProvid
   }
 }
 
-class _EditorBottomPanel extends StatelessWidget {
+class _EditorBottomPanel extends ConsumerStatefulWidget {
+  final ValueGetter<Offset?> avoidPoint;
   final ImageProvider source;
   final double maxHeight;
-  final bool sidePanel;
   final bool settingsExpanded;
   final VoidCallback onToggleSettings;
   final EditorMode mode;
   final bool allowTransformEdits;
-  final RemoteAsset? asset;
   final bool straightening;
   final ValueChanged<bool> onStraightening;
   final VoidCallback onLayers;
@@ -678,14 +775,13 @@ class _EditorBottomPanel extends StatelessWidget {
   final VoidCallback onRedo;
 
   const _EditorBottomPanel({
+    required this.avoidPoint,
     required this.source,
     required this.maxHeight,
-    required this.sidePanel,
     required this.settingsExpanded,
     required this.onToggleSettings,
     required this.mode,
     required this.allowTransformEdits,
-    required this.asset,
     required this.straightening,
     required this.onStraightening,
     required this.onLayers,
@@ -711,325 +807,242 @@ class _EditorBottomPanel extends StatelessWidget {
   });
 
   @override
+  ConsumerState<_EditorBottomPanel> createState() => _EditorBottomPanelState();
+}
+
+class _EditorBottomPanelState extends ConsumerState<_EditorBottomPanel> {
+  String? _parameter;
+
+  void _dismiss() {
+    if (_parameter == null) {
+      return;
+    }
+    setState(() => _parameter = null);
+    if (widget.straightening) {
+      widget.onStraightening(false);
+    }
+  }
+
+  void _open(String value) {
+    setState(() => _parameter = _parameter == value ? null : value);
+    widget.onStraightening(_parameter == 'straighten');
+  }
+
+  @override
+  void didUpdateWidget(covariant _EditorBottomPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mode != widget.mode || oldWidget.settingsExpanded != widget.settingsExpanded) {
+      _parameter = null;
+    }
+  }
+
+  Widget _button(String key, FotoIconKind icon, String label, VoidCallback? action, {bool selected = false}) =>
+      FotoIconButton(key: Key(key), kind: icon, label: label, onPressed: action, selected: selected);
+
+  String _toolLabel(BuildContext context, AnnotationTool tool) => context.tr(switch (tool) {
+    AnnotationTool.pen => 'editor_pen',
+    AnnotationTool.highlighter => 'editor_marker',
+    AnnotationTool.brush => 'editor_brush',
+    AnnotationTool.eraser => 'editor_stroke_eraser',
+    AnnotationTool.move => 'editor_select',
+    AnnotationTool.arrow => 'editor_arrow',
+    AnnotationTool.rectangle => 'editor_rectangle',
+    AnnotationTool.ellipse => 'editor_ellipse',
+    _ => 'editor_text',
+  });
+
+  @override
   Widget build(BuildContext context) {
-    const surface = Color(0xff191919);
-    final modeBar = EditorModeBar(
-      mode: mode,
-      allowTransformEdits: allowTransformEdits,
-      hasMagicEraser: asset != null,
-      onMode: (next) {
-        final active = mode == EditorMode.adjustments
-            ? EditorMode.filters
-            : mode == EditorMode.shapes
-            ? EditorMode.draw
-            : mode;
-        if (next == EditorMode.magicEraser) {
-          onMode(next);
-        } else if (next == active) {
-          onToggleSettings();
-        } else {
-          onMode(next);
-        }
-      },
-    );
-    final draw = mode == EditorMode.draw || mode == EditorMode.shapes;
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final footerHeight = modeBar.preferredHeight(context) + bottomInset;
-    // A keyboard can leave less room than even the primary toolbar. Keep the
-    // document and restore the controls when space returns, without overflow.
-    if (maxHeight < footerHeight) {
+    // IME can leave no useful control space. It never changes the document.
+    if (widget.maxHeight < EditorDock.height + MediaQuery.paddingOf(context).bottom) {
       return const SizedBox.shrink();
     }
-    const headerHeight = 48.0;
-    final canvasReserve = sidePanel ? 0.0 : min(maxHeight - footerHeight, min(120.0, maxHeight * .35));
-    final auxiliaryFits = maxHeight - canvasReserve >= footerHeight + headerHeight + (settingsExpanded ? 48 : 0);
-    final showSettings = settingsExpanded && auxiliaryFits;
-    final minimumHeight =
-        footerHeight + (auxiliaryFits && (draw || showSettings) ? headerHeight : 0) + (showSettings ? 48 : 0);
-    final limit = sidePanel ? maxHeight : min(maxHeight - canvasReserve, max(minimumHeight, maxHeight * .32));
-    Widget markup({required bool controls}) => MarkupControls(
-      mode: mode,
-      tool: tool,
-      color: color,
-      width: width,
-      opacity: opacity,
-      canUndo: canUndo,
-      canRedo: canRedo,
-      textStyle: textStyle,
-      onTextStyle: onTextStyle,
-      onSticker: onSticker,
-      onGestureStart: onGestureStart,
-      onGestureEnd: onGestureEnd,
-      onTool: onTool,
-      onColor: onColor,
-      onWidth: onWidth,
-      onOpacity: onOpacity,
-      onUndo: onUndo,
-      onRedo: onRedo,
+    final notifier = ref.read(editorStateProvider.notifier);
+    final draw = widget.mode == EditorMode.draw || widget.mode == EditorMode.shapes;
+    Widget markup(MarkupParameter parameter) => MarkupControls(
+      mode: widget.mode,
+      tool: widget.tool,
+      color: widget.color,
+      width: widget.width,
+      opacity: widget.opacity,
+      canUndo: widget.canUndo,
+      canRedo: widget.canRedo,
+      textStyle: widget.textStyle,
+      onTextStyle: widget.onTextStyle,
+      onSticker: widget.onSticker,
+      onGestureStart: widget.onGestureStart,
+      onGestureEnd: widget.onGestureEnd,
+      onTool: widget.onTool,
+      onColor: widget.onColor,
+      onWidth: widget.onWidth,
+      onOpacity: widget.onOpacity,
+      onUndo: widget.onUndo,
+      onRedo: widget.onRedo,
       compact: true,
-      isSettingsOpen: settingsExpanded,
-      showToolStrip: !controls,
-      settingsExpanded: controls,
-      onToggleSettings: onToggleSettings,
+      showToolStrip: false,
+      parameter: parameter,
+      onComplete: _dismiss,
     );
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: min(maxHeight, limit)),
-      child: Container(
-        key: const Key('editor-bottom-panel'),
-        width: double.infinity,
-        decoration: const BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (draw && auxiliaryFits)
-                markup(controls: false)
-              else if (showSettings)
-                Row(
-                  children: [
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(mode.label(context), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ),
-                    ),
-                    _SecondaryEditorTools(
-                      allowTransformEdits: allowTransformEdits,
-                      onMode: onMode,
-                      onReset: onReset,
-                      onLayers: onLayers,
-                    ),
-                    IconButton(
-                      key: const Key('editor-toggle-settings'),
-                      tooltip: context.tr('collapse'),
-                      onPressed: onToggleSettings,
-                      icon: const Icon(Icons.expand_more),
-                    ),
-                  ],
-                ),
-              if (showSettings)
-                Flexible(
-                  fit: sidePanel ? FlexFit.tight : FlexFit.loose,
-                  child: SingleChildScrollView(
-                    key: const Key('editor-active-settings'),
-                    primary: false,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (draw)
-                          _SecondaryEditorTools(
-                            allowTransformEdits: allowTransformEdits,
-                            onMode: onMode,
-                            onReset: onReset,
-                            onLayers: onLayers,
-                          ),
-                        if (mode == EditorMode.crop && allowTransformEdits) ...[
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            children: [
-                              TextButton(
-                                key: const Key('editor-crop-frame'),
-                                onPressed: () => onStraightening(false),
-                                child: Text(context.t.editor_crop_frame),
-                              ),
-                              TextButton(
-                                key: const Key('editor-crop-straighten'),
-                                onPressed: () => onStraightening(true),
-                                child: Text(context.t.editor_straighten),
-                              ),
-                            ],
-                          ),
-                          if (straightening) const _StraightenControls() else const _TransformControls(),
-                        ],
-                        if (mode == EditorMode.filters || mode == EditorMode.adjustments) ...[
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            children: [
-                              TextButton(
-                                key: const Key('editor-color-filters'),
-                                onPressed: () => onMode(EditorMode.filters),
-                                child: Text(context.t.editor_filters),
-                              ),
-                              TextButton(
-                                key: const Key('editor-color-adjustments'),
-                                onPressed: () => onMode(EditorMode.adjustments),
-                                child: Text(context.t.editor_adjustments),
-                              ),
-                            ],
-                          ),
-                          if (mode == EditorMode.filters) FilterPanel(source: source) else const AdjustmentPanel(),
-                        ],
-                        if (mode == EditorMode.draw ||
-                            mode == EditorMode.text ||
-                            mode == EditorMode.shapes ||
-                            mode == EditorMode.stickers)
-                          markup(controls: true),
-                      ],
-                    ),
-                  ),
-                ),
-              if (sidePanel && !showSettings) const Spacer(),
-              modeBar,
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class EditorModeBar extends StatelessWidget {
-  final EditorMode mode;
-  final bool allowTransformEdits;
-  final bool hasMagicEraser;
-  final ValueChanged<EditorMode> onMode;
-
-  const EditorModeBar({
-    super.key,
-    required this.mode,
-    required this.allowTransformEdits,
-    required this.hasMagicEraser,
-    required this.onMode,
-  });
-
-  static const _labelStyle = TextStyle(fontSize: 12, height: 1.2);
-  static const _modes = [EditorMode.crop, EditorMode.draw, EditorMode.text, EditorMode.magicEraser];
-
-  double preferredHeight(BuildContext context) => max(56, 36 + MediaQuery.textScalerOf(context).scale(12) * 2.4);
-
-  @override
-  Widget build(BuildContext context) {
-    final activeMode = switch (mode) {
-      EditorMode.adjustments || EditorMode.filters => EditorMode.crop,
-      EditorMode.shapes || EditorMode.stickers => EditorMode.draw,
-      _ => mode,
+    final popover = switch (_parameter) {
+      'color' => markup(MarkupParameter.color),
+      'width' => markup(MarkupParameter.width),
+      'opacity' => markup(MarkupParameter.opacity),
+      'text' => markup(MarkupParameter.text),
+      'aspect' => _AspectRatioSelector(onSelected: _dismiss),
+      'straighten' => _StraightenControls(onComplete: _dismiss),
+      'filters' => FilterPanel(source: widget.source),
+      'adjustments' => AdjustmentPanel(onComplete: _dismiss),
+      _ => null,
     };
-    return SizedBox(
-      key: const Key('editor-mode-bar'),
-      height: preferredHeight(context),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Keep readable labels at the user's actual text scale. At large
-          // accessibility sizes the four tools scroll rather than hiding text.
-          final labelStyle = _labelStyle.copyWith(
-            fontFamily: Theme.of(context).textTheme.labelSmall?.fontFamily,
-            fontWeight: FontWeight.w500,
+    final controls = <Widget>[];
+    if (!widget.settingsExpanded) {
+      controls.add(
+        EditorModeBar(mode: widget.mode, allowTransformEdits: widget.allowTransformEdits, onMode: widget.onMode),
+      );
+    } else {
+      controls.add(
+        _button('editor-tools-back', FotoIconKind.back, context.t.back, () {
+          _dismiss();
+          widget.onToggleSettings();
+        }),
+      );
+      if (widget.mode == EditorMode.crop) {
+        controls.addAll([
+          _button('editor-rotate-left', FotoIconKind.rotateLeft, context.t.editor_rotate_left, notifier.rotateCCW),
+          _button('editor-rotate-right', FotoIconKind.rotateRight, context.t.editor_rotate_right, notifier.rotateCW),
+          _button(
+            'editor-flip-horizontal',
+            FotoIconKind.flipH,
+            context.t.editor_flip_horizontal,
+            notifier.flipHorizontally,
+          ),
+          _button('editor-flip-vertical', FotoIconKind.flipV, context.t.editor_flip_vertical, notifier.flipVertically),
+          _button('editor-crop-frame', FotoIconKind.aspect, context.t.editor_crop_frame, () => _open('aspect')),
+          _button(
+            'editor-crop-straighten',
+            FotoIconKind.straighten,
+            context.t.editor_straighten,
+            () => _open('straighten'),
+          ),
+        ]);
+      } else if (draw) {
+        for (final tool in [
+          AnnotationTool.pen,
+          AnnotationTool.highlighter,
+          AnnotationTool.brush,
+          AnnotationTool.eraser,
+          AnnotationTool.move,
+          AnnotationTool.arrow,
+          AnnotationTool.rectangle,
+          AnnotationTool.ellipse,
+        ]) {
+          controls.add(
+            _button('editor-tool-${tool.name}', fotoAnnotationToolIcons[tool]!, _toolLabel(context, tool), () {
+              _dismiss();
+              widget.onTool(tool);
+            }, selected: widget.tool == tool),
           );
-          final widths = _modes.map((entry) {
-            final label = entry.label(context);
-            final longest = label.split(RegExp(r'\s+')).reduce((a, b) => a.length >= b.length ? a : b);
-            final painter = TextPainter(
-              text: TextSpan(text: longest, style: labelStyle),
-              textDirection: Directionality.of(context),
-              textScaler: MediaQuery.textScalerOf(context),
-            )..layout();
-            final width = max(48.0, painter.width.ceilToDouble() + 18);
-            painter.dispose();
-            return width;
-          }).toList();
-          final total = widths.fold<double>(0, (sum, width) => sum + width);
-          final spare = max(0.0, constraints.maxWidth - total) / _modes.length;
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (var index = 0; index < _modes.length; index++)
-                  SizedBox(
-                    width: widths[index] + spare,
-                    height: preferredHeight(context),
-                    child: Semantics(
-                      selected: _modes[index] == activeMode,
-                      child: TextButton(
-                        key: Key('editor-mode-${_modes[index].name}'),
-                        style: TextButton.styleFrom(
-                          minimumSize: const Size(48, 48),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          foregroundColor: _modes[index] == activeMode ? Colors.yellow : Colors.white70,
-                          backgroundColor: _modes[index] == activeMode ? const Color(0xff303030) : null,
-                        ),
-                        onPressed: allowTransformEdits || _modes[index] == EditorMode.magicEraser
-                            ? () => onMode(_modes[index])
-                            : null,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(_modes[index].icon, size: 24),
-                            const SizedBox(height: 2),
-                            Text(_modes[index].label(context), textAlign: TextAlign.center, style: labelStyle),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+        }
+        controls.add(_button('editor-width', FotoIconKind.brush, context.t.size, () => _open('width')));
+      } else if (widget.mode == EditorMode.text) {
+        controls.addAll([
+          _button(
+            'editor-tool-text',
+            FotoIconKind.text,
+            context.t.editor_text,
+            () => widget.onTool(AnnotationTool.text),
+          ),
+          _button(
+            'editor-tool-move',
+            FotoIconKind.move,
+            context.tr('editor_select'),
+            () => widget.onTool(AnnotationTool.move),
+          ),
+          _button('editor-text-options', FotoIconKind.textOutline, context.t.settings, () => _open('text')),
+        ]);
+      } else if (widget.mode == EditorMode.stickers) {
+        for (final sticker in [
+          ('star', FotoIconKind.star),
+          ('heart', FotoIconKind.favorite),
+          ('smile', FotoIconKind.smile),
+        ]) {
+          controls.add(
+            _button(
+              'editor-sticker-${sticker.$1}',
+              sticker.$2,
+              '${context.tr('editor_stickers')}: ${sticker.$1}',
+              () => widget.onSticker(sticker.$1),
             ),
           );
-        },
-      ),
+        }
+      } else if (widget.mode == EditorMode.filters || widget.mode == EditorMode.adjustments) {
+        controls.addAll([
+          _button('editor-color-filters', FotoIconKind.filters, context.t.editor_filters, () => _open('filters')),
+          _button(
+            'editor-color-adjustments',
+            FotoIconKind.adjustments,
+            context.t.editor_adjustments,
+            () => _open('adjustments'),
+          ),
+        ]);
+      }
+      if (draw || widget.mode == EditorMode.text || widget.mode == EditorMode.stickers) {
+        controls.addAll([
+          _button('editor-color', FotoIconKind.hue, context.t.color, () => _open('color')),
+          _button('editor-opacity', FotoIconKind.opacity, context.tr('editor_opacity'), () => _open('opacity')),
+          _button('editor-layers', FotoIconKind.layers, context.tr('editor_layers'), widget.onLayers),
+        ]);
+      }
+      controls.add(_button('editor-reset', FotoIconKind.reset, context.t.reset, widget.onReset));
+    }
+    return EditorDock(
+      avoidPoint: widget.avoidPoint,
+      leading: widget.settingsExpanded ? controls.removeAt(0) : null,
+      controls: controls,
+      popover: popover,
+      onDismiss: _dismiss,
     );
   }
 }
 
-class _SecondaryEditorTools extends StatelessWidget {
+/// Categories occupy this same dock only while no contextual tool row is open.
+class EditorModeBar extends StatelessWidget {
+  const EditorModeBar({super.key, required this.mode, required this.allowTransformEdits, required this.onMode});
+  final EditorMode mode;
   final bool allowTransformEdits;
   final ValueChanged<EditorMode> onMode;
-  final VoidCallback onReset;
-  final VoidCallback onLayers;
-
-  const _SecondaryEditorTools({
-    required this.allowTransformEdits,
-    required this.onMode,
-    required this.onReset,
-    required this.onLayers,
-  });
+  double preferredHeight(BuildContext context) => 48;
 
   @override
-  Widget build(BuildContext context) => PopupMenuButton<String>(
-    key: const Key('editor-more'),
-    tooltip: context.t.editor_tools_more,
-    icon: const Icon(Icons.more_horiz),
-    onSelected: (value) {
-      switch (value) {
-        case 'reset':
-          onReset();
-        case 'layers':
-          onLayers();
-        case 'filters':
-          onMode(EditorMode.filters);
-        case 'stickers':
-          onMode(EditorMode.stickers);
-      }
-    },
-    itemBuilder: (context) => [
-      PopupMenuItem(
-        key: const Key('editor-reset'),
-        value: 'reset',
-        enabled: allowTransformEdits,
-        child: Text(context.t.editor_revert),
-      ),
-      PopupMenuItem(value: 'layers', enabled: allowTransformEdits, child: Text(context.t.editor_layers)),
-      PopupMenuItem(
-        key: const Key('editor-mode-filters'),
-        value: 'filters',
-        enabled: allowTransformEdits,
-        child: Text(context.t.editor_filters),
-      ),
-      PopupMenuItem(
-        key: const Key('editor-mode-stickers'),
-        value: 'stickers',
-        enabled: allowTransformEdits,
-        child: Text(context.t.editor_stickers),
-      ),
+  Widget build(BuildContext context) => Row(
+    key: const Key('editor-mode-bar'),
+    children: [
+      for (final entry in [
+        EditorMode.crop,
+        EditorMode.draw,
+        EditorMode.text,
+        EditorMode.magicEraser,
+        EditorMode.filters,
+        EditorMode.adjustments,
+        EditorMode.shapes,
+        EditorMode.stickers,
+      ])
+        FotoIconButton(
+          key: Key('editor-mode-${entry.name}'),
+          kind: fotoEditorModeIcons[entry]!,
+          label: entry.label(context),
+          selected: mode == entry,
+          // Local photos retain the existing explanation/retry dialog; opening
+          // it never uploads an image or discards the current editor document.
+          onPressed: entry == EditorMode.magicEraser || allowTransformEdits ? () => onMode(entry) : null,
+        ),
     ],
   );
 }
 
 class _StraightenControls extends ConsumerWidget {
-  const _StraightenControls();
+  const _StraightenControls({this.onComplete});
+  final VoidCallback? onComplete;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1046,7 +1059,10 @@ class _StraightenControls extends ConsumerWidget {
           value: angle,
           onChangeStart: (_) => notifier.beginGesture(),
           onChanged: notifier.setStraightenDegrees,
-          onChangeEnd: (_) => notifier.endGesture(),
+          onChangeEnd: (_) {
+            notifier.endGesture();
+            onComplete?.call();
+          },
           label: '${angle.toStringAsFixed(1)}°',
         ),
       ],
@@ -1072,7 +1088,13 @@ class _AspectRatioButton extends StatelessWidget {
           iconSize: 36,
           icon: ratio.ratio != null
               ? _AspectRatioRect(ratio: ratio.ratio!, color: color)
-              : Icon(ratio.icon, color: color),
+              : FotoIcon(
+                  kind: ratio == CropAspectRatio.free ? FotoIconKind.crop : FotoIconKind.aspect,
+                  semanticLabel: ratio == CropAspectRatio.free
+                      ? context.t.crop_aspect_ratio_free
+                      : context.t.crop_aspect_ratio_original,
+                  state: isSelected ? FotoIconState.active : FotoIconState.normal,
+                ),
           onPressed: onPressed,
         ),
         Text(switch (ratio) {
@@ -1112,7 +1134,8 @@ class _AspectRatioRect extends StatelessWidget {
 }
 
 class _AspectRatioSelector extends ConsumerWidget {
-  const _AspectRatioSelector();
+  const _AspectRatioSelector({this.onSelected});
+  final VoidCallback? onSelected;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1128,7 +1151,10 @@ class _AspectRatioSelector extends ConsumerWidget {
             child: _AspectRatioButton(
               ratio: entry,
               isSelected: editorState.aspectRatio == entry,
-              onPressed: () => editorNotifier.setAspectRatio(entry),
+              onPressed: () {
+                editorNotifier.setAspectRatio(entry);
+                onSelected?.call();
+              },
             ),
           );
         }).toList(),
@@ -1137,139 +1163,33 @@ class _AspectRatioSelector extends ConsumerWidget {
   }
 }
 
-class _TransformControls extends ConsumerWidget {
-  const _TransformControls();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final editorNotifier = ref.watch(editorStateProvider.notifier);
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            spacing: 8,
-            children: [
-              Tooltip(
-                message: context.t.editor_rotate_left,
-                child: ImmichIconButton(
-                  icon: Icons.rotate_left,
-                  variant: ImmichVariant.ghost,
-                  color: ImmichColor.secondary,
-                  onPressed: editorNotifier.rotateCCW,
-                ),
-              ),
-              Tooltip(
-                message: context.t.editor_rotate_right,
-                child: ImmichIconButton(
-                  icon: Icons.rotate_right,
-                  variant: ImmichVariant.ghost,
-                  color: ImmichColor.secondary,
-                  onPressed: editorNotifier.rotateCW,
-                ),
-              ),
-              Tooltip(
-                message: context.t.editor_flip_horizontal,
-                child: ImmichIconButton(
-                  icon: Icons.flip,
-                  variant: ImmichVariant.ghost,
-                  color: ImmichColor.secondary,
-                  onPressed: editorNotifier.flipHorizontally,
-                ),
-              ),
-              Tooltip(
-                message: context.t.editor_flip_vertical,
-                child: Transform.rotate(
-                  angle: pi / 2,
-                  child: ImmichIconButton(
-                    icon: Icons.flip,
-                    variant: ImmichVariant.ghost,
-                    color: ImmichColor.secondary,
-                    onPressed: editorNotifier.flipVertically,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const _AspectRatioSelector(),
-      ],
-    );
-  }
-}
-
-TextStyle _editorSaveLabelStyle(BuildContext context) => TextStyle(
-  fontSize: 14,
-  height: 1.2,
-  fontWeight: FontWeight.w500,
-  fontFamily: Theme.of(context).textTheme.labelLarge?.fontFamily,
-);
-
-double _editorSaveWidth(BuildContext context) {
-  final available = MediaQuery.sizeOf(context).width - MediaQuery.paddingOf(context).horizontal - 144;
-  final painter = TextPainter(
-    text: TextSpan(
-      text: context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
-      style: _editorSaveLabelStyle(context),
-    ),
-    textDirection: Directionality.of(context),
-    textScaler: MediaQuery.textScalerOf(context),
-  )..layout();
-  final width = min(max(48.0, available), max(112.0, painter.width.ceilToDouble() + 18));
-  painter.dispose();
-  return width;
-}
-
-double _editorHeaderHeight(BuildContext context) {
-  final painter = TextPainter(
-    text: TextSpan(
-      text: context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
-      style: _editorSaveLabelStyle(context),
-    ),
-    textDirection: Directionality.of(context),
-    textScaler: MediaQuery.textScalerOf(context),
-  )..layout(maxWidth: max(1, _editorSaveWidth(context) - 16));
-  final height = max(56.0, painter.height + 16);
-  painter.dispose();
-  return height;
-}
-
 class _SaveEditsButton extends ConsumerWidget {
   final VoidCallback onSave;
   final bool enabled;
+  final bool retryImport;
 
-  const _SaveEditsButton({required this.onSave, required this.enabled});
+  const _SaveEditsButton({required this.onSave, required this.enabled, this.retryImport = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isApplyingEdits = ref.watch(editorStateProvider.select((state) => state.isApplyingEdits));
     final hasUnsavedEdits = ref.watch(editorStateProvider.select((state) => state.hasUnsavedEdits));
-    return SizedBox(
-      width: _editorSaveWidth(context),
-      height: _editorHeaderHeight(context),
+    final label = retryImport ? context.t.retry : context.t.magic_eraser_save_copy;
+    return SizedBox.square(
+      dimension: 48,
       child: TextButton(
         key: const Key('editor-save'),
-        style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          minimumSize: const Size(48, 48),
-        ),
-        onPressed: enabled && hasUnsavedEdits && !isApplyingEdits ? onSave : null,
+        style: TextButton.styleFrom(minimumSize: const Size.square(48), padding: EdgeInsets.zero),
+        onPressed: enabled && (hasUnsavedEdits || retryImport) && !isApplyingEdits ? onSave : null,
         child: Tooltip(
-          message: context.t.magic_eraser_save_copy,
-          child: Semantics(
-            label: context.t.magic_eraser_save_copy,
-            excludeSemantics: true,
-            child: isApplyingEdits
-                ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
-                : Text(
-                    context.t.magic_eraser_save_copy.replaceFirst(' ', '\n'),
-                    textAlign: TextAlign.center,
-                    style: _editorSaveLabelStyle(context),
-                  ),
-          ),
+          message: label,
+          child: isApplyingEdits
+              ? const SizedBox.square(dimension: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+              : FotoIcon(
+                  kind: FotoIconKind.saveCopy,
+                  semanticLabel: label,
+                  state: enabled && (hasUnsavedEdits || retryImport) ? FotoIconState.normal : FotoIconState.disabled,
+                ),
         ),
       ),
     );

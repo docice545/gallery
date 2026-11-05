@@ -5,6 +5,7 @@ import { AuthDto } from 'src/dtos/auth.dto.js';
 import { TrashResponseDto } from 'src/dtos/trash.dto.js';
 import { JobName, JobStatus, Permission, QueueName } from 'src/enum.js';
 import { BaseService } from 'src/services/base.service.js';
+import { DeletionError } from 'src/utils/authorized-deletion.js';
 
 @Injectable()
 export class TrashService extends BaseService {
@@ -15,7 +16,13 @@ export class TrashService extends BaseService {
     }
 
     await this.requireAccess({ auth, permission: Permission.AssetDelete, ids });
-    const restoredIds = await this.trashRepository.restoreAll(ids);
+    let restoredIds: string[];
+    try {
+      restoredIds = await this.trashRepository.restoreAll(ids, auth.user.id);
+    } catch (error) {
+      if (error instanceof DeletionError) throw new ConflictException(error.code);
+      throw error;
+    }
     if (restoredIds.length > 0) {
       await this.duplicateRepository.deleteConflictingTombstones(auth.user.id, restoredIds);
       await this.eventRepository.emit('AssetRestoreAll', { assetIds: restoredIds, userId: auth.user.id });
@@ -27,9 +34,11 @@ export class TrashService extends BaseService {
   }
 
   async restore(auth: AuthDto): Promise<TrashResponseDto> {
-    const count = await this.trashRepository.restore(auth.user.id);
+    const restoredIds = await this.trashRepository.restoreWithIds(auth.user.id);
+    const count = restoredIds.length;
     if (count > 0) {
       await this.duplicateRepository.deleteConflictingTombstonesForUser(auth.user.id);
+      await this.eventRepository.emit('AssetRestoreAll', { assetIds: restoredIds, userId: auth.user.id });
       this.logger.log(`Restored ${count} asset(s) from trash`);
     }
     return { count };

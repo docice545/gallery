@@ -4,6 +4,7 @@ import 'package:easy_localization/easy_localization.dart' hide TextDirection;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:immich_mobile/data/db/main/database.dart';
 import 'package:immich_mobile/domain/models/store.model.dart';
 import 'package:immich_mobile/domain/models/timeline.model.dart';
@@ -64,7 +65,9 @@ void main() {
           textDirection: textDirection,
           child: MediaQuery(
             data: mediaQuery ?? const MediaQueryData(),
-            child: Scaffold(body: Center(child: child)),
+            child: ProviderScope(
+              child: Scaffold(body: Center(child: child)),
+            ),
           ),
         ),
       ),

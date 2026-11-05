@@ -161,7 +161,15 @@ void main() {
     ScrollController? scroll,
     _PlaybackLog? playback,
   }) async {
-    final buckets = (groups ?? [assets.length]).map((count) => Bucket(assetCount: count)).toList();
+    var offset = 0;
+    final buckets = (groups ?? [assets.length]).map((count) {
+      final rowAssets = assets.skip(offset).take(count);
+      offset += count;
+      return Bucket(
+        assetCount: count,
+        aspectRatios: [for (final asset in rowAssets) (asset.width ?? 1) / (asset.height ?? 1)],
+      );
+    }).toList();
     final service = TimelineService((
       origin: TimelineOrigin.main,
       bucketSource: () => Stream.value(buckets),
@@ -239,26 +247,59 @@ void main() {
     return ProviderScope.containerOf(tester.element(find.byType(ListView)));
   }
 
-  testWidgets('a single dense tile fills the row and retains top-right motion and stack badges', (tester) async {
+  testWidgets('a solitary portrait stays compact and centered with motion and stack badges', (tester) async {
     final asset = _asset('single', ratio: 0.6, live: true, stack: true);
     await mountRows(tester, [asset]);
     await tester.pumpAndSettle();
 
     final rect = tester.getRect(_tile(asset.id));
-    expect(rect.width, closeTo(_viewportWidth, 0.001));
-    expect(rect.height, greaterThan(160));
+    // Build 39 keeps an isolated date portrait proportional and bounded.
+    expect(rect.height, 128);
+    expect(rect.width / rect.height, closeTo(.6, .001));
+    expect(rect.center.dx, closeTo(tester.getRect(find.byType(ListView)).center.dx, .001));
     final motion = tester.getRect(_inTile(asset.id, find.byIcon(Icons.motion_photos_on_rounded)));
     final stackCount = tester.getRect(_inTile(asset.id, find.text(' 3')));
-    final burst = tester.getRect(_inTile(asset.id, find.byIcon(Icons.burst_mode_rounded)));
+    final burst = tester.getRect(_inTile(asset.id, find.byIcon(Icons.photo_library_outlined)));
     final cloud = tester.getRect(_inTile(asset.id, find.byIcon(Icons.cloud_outlined)));
     expect(motion.right, closeTo(rect.right - 10, 0.001));
     expect(motion.top, closeTo(rect.top + 6, 0.001));
-    expect(stackCount.right, closeTo(rect.right - 10, 0.001));
+    expect(burst.left, closeTo(rect.left + 8, 0.001));
+    expect(stackCount.bottom, closeTo(rect.bottom - 8, 0.001));
+    expect(stackCount.left, closeTo(burst.right, 0.001));
     expect(burst.top, greaterThan(motion.bottom));
     expect(cloud.right, closeTo(rect.right - 10, 0.001));
     expect(cloud.bottom, closeTo(rect.bottom - 6, 0.001));
     expect(tester.takeException(), isNull);
   });
+
+  for (final density in [2, 3, 4, 5]) {
+    testWidgets('density $density keeps a Live Photo stack as one tile beside ordinary photos', (tester) async {
+      final assets = [
+        _asset('screenshot-stack', ratio: .45, live: true, stack: true),
+        _asset('landscape', ratio: 1.5),
+        _asset('portrait', ratio: .75),
+      ];
+      await mountRows(tester, assets, columns: density, viewportHeight: 1000);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ThumbnailTile), findsNWidgets(3));
+      expect(
+        tester.widgetList<ThumbnailTile>(find.byType(ThumbnailTile)).map((tile) => tile.asset!.id),
+        assets.map((asset) => asset.id),
+      );
+      expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+      expect(_inTile('screenshot-stack', find.text(' 3')), findsOneWidget);
+      expect(_inTile('screenshot-stack', find.byIcon(Icons.motion_photos_on_rounded)), findsOneWidget);
+      for (final asset in assets) {
+        final rect = tester.getRect(_tile(asset.id));
+        expect(rect.width, greaterThanOrEqualTo(72 - .001));
+        expect(rect.height, inExclusiveRange(0, 321));
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(tester.view.physicalSize.width));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('portrait and landscape tiles use different widths and fill a two-asset dense row', (tester) async {
     final assets = [_asset('portrait', ratio: 0.5), _asset('landscape', ratio: 2)];
@@ -275,7 +316,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('all rendered dense rows fill the width even when the last row is incomplete', (tester) async {
+  testWidgets('rebalanced mixed rows fill the width without abandoning the last portrait', (tester) async {
     final assets = [
       _asset('one', ratio: 0.5),
       _asset('two', ratio: 1.8),
@@ -288,18 +329,14 @@ void main() {
 
     final wrappers = find.byType(TimelineAssetIndexWrapper);
     expect(wrappers, findsNWidgets(5));
-    final rowRects = <double, List<Rect>>{};
-    for (final asset in assets) {
-      final rect = tester.getRect(_tile(asset.id));
-      rowRects.putIfAbsent(rect.top, () => []).add(rect);
+    final rects = [for (final asset in assets) tester.getRect(_tile(asset.id))];
+    final left = rects.map((r) => r.left).reduce(math.min);
+    for (var y = rects.first.top + 6; y < rects.map((r) => r.bottom).reduce(math.max) - 6; y += 12) {
+      for (var x = left + 6; x < left + _viewportWidth - 6; x += 12) {
+        expect(rects.any((rect) => rect.inflate(_spacing / 2 + .01).contains(Offset(x, y))), isTrue);
+      }
     }
-    expect(rowRects.length, 2);
-    for (final rects in rowRects.values) {
-      expect(
-        rects.fold<double>(0, (sum, rect) => sum + rect.width) + _spacing * (rects.length - 1),
-        closeTo(_viewportWidth, 0.001),
-      );
-    }
+    expect(rects.every((rect) => rect.width < _viewportWidth && rect.width >= 96), isTrue);
     expect(tester.takeException(), isNull);
   });
 
@@ -323,7 +360,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('long press and selection taps keep dense row size, selection inset, Hero and badges', (tester) async {
+  testWidgets('long press and selection taps preserve dense image geometry, Hero and badges', (tester) async {
     final asset = _asset('selected', live: true, stack: true);
     final container = await mountRows(tester, [asset]);
     await tester.pumpAndSettle();
@@ -335,11 +372,11 @@ void main() {
     expect(container.read(multiSelectProvider).selectedAssets, contains(asset));
     expect(tester.getRect(_tile(asset.id)), before);
     final hero = tester.getRect(_inTile(asset.id, find.byType(Hero)));
-    expect(hero, before.deflate(6));
+    expect(hero, before);
     expect(tester.widget<Hero>(_inTile(asset.id, find.byType(Hero))).tag, '${asset.heroTag}_0');
     final selection = tester.getRect(_inTile(asset.id, find.byIcon(Icons.check_circle_rounded)));
-    expect(selection.left, closeTo(before.left + 3, 0.001));
-    expect(selection.top, closeTo(before.top + 3, 0.001));
+    expect(selection.left, closeTo(before.left + 8, 0.001));
+    expect(selection.top, closeTo(before.top + 8, 0.001));
     expect(_inTile(asset.id, find.text(' 3')), findsOneWidget);
     final motion = tester.getRect(_inTile(asset.id, find.byIcon(Icons.motion_photos_on_rounded)));
     expect(motion.right, closeTo(hero.right - 10, 0.001));
@@ -355,9 +392,9 @@ void main() {
   testWidgets('dense geometry selects one central visible motion tile and completion never cascades', (tester) async {
     final playback = _PlaybackLog();
     final assets = [
-      _asset('left', live: true, localVideo: true),
-      _asset('center', live: true, localVideo: true),
-      _asset('right', live: true, localVideo: true),
+      _asset('left', ratio: 0.6, live: true, localVideo: true),
+      _asset('center', ratio: 0.6, live: true, localVideo: true),
+      _asset('right', ratio: 0.6, live: true, localVideo: true),
     ];
     await mountRows(tester, assets, playback: playback);
     expect(playback.starts, isEmpty);
@@ -379,12 +416,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('a cropped viewport below the visibility threshold does not autoplay a full-width motion tile', (
-    tester,
-  ) async {
+  testWidgets('a cropped viewport below the visibility threshold does not autoplay a motion tile', (tester) async {
     final playback = _PlaybackLog();
-    await mountRows(tester, [_asset('cropped', live: true, localVideo: true)], viewportHeight: 210, playback: playback);
-    expect(tester.getSize(_tile('cropped')).height, 270);
+    await mountRows(tester, [_asset('cropped', live: true, localVideo: true)], viewportHeight: 60, playback: playback);
+    final tileHeight = tester.getSize(_tile('cropped')).height;
+    expect(60 / tileHeight, lessThan(.65));
     await _settlePreview(tester);
     expect(playback.starts, isEmpty);
   });

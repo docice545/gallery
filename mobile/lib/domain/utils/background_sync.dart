@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:immich_mobile/data/db/sqlite_health.dart';
 import 'package:immich_mobile/domain/utils/migrate_cloud_ids.dart' as m;
 import 'package:immich_mobile/domain/utils/sync_linked_album.dart';
 import 'package:immich_mobile/providers/infrastructure/sync.provider.dart';
@@ -43,9 +44,14 @@ class BackgroundSyncManager {
   Cancelable<void>? _syncWebsocketTask;
   Cancelable<void>? _cloudIdSyncTask;
   Cancelable<void>? _deviceAlbumSyncTask;
+  bool _localSyncQueued = false;
+  bool _fullLocalSyncQueued = false;
   Cancelable<void>? _linkedAlbumSyncTask;
   Cancelable<void>? _hashTask;
+  Completer<void>? _queuedHash;
   Cancelable<void>? _trashTask;
+  bool _sqliteRecoveryRequired = false;
+  int? _sqliteRecoveryReleaseEpoch;
 
   BackgroundSyncManager({
     this.onRemoteSyncStart,
@@ -78,6 +84,9 @@ class BackgroundSyncManager {
 
   Future<void> cancel() async {
     _syncQueued = false;
+    _localSyncQueued = false;
+    _fullLocalSyncQueued = false;
+    _cancelQueuedHash();
     final tasks = _allTasks;
     _syncTask = null;
     _syncWebsocketTask = null;
@@ -89,8 +98,41 @@ class BackgroundSyncManager {
     await _cancelAll(tasks);
   }
 
+  /// True after a worker reports an unsafe SQLite write failure. This flag
+  /// lives in the root isolate so a later request cannot silently create a new
+  /// worker with a fresh process-local recovery gate.
+  bool get sqliteRecoveryRequired => _sqliteRecoveryRequired;
+
+  /// Release the root-isolate barrier only after the user-mediated recovery
+  /// flow has validated and explicitly restored the repaired copy.
+  void clearSqliteRecoveryAfterValidatedRecovery() {
+    _sqliteRecoveryRequired = false;
+    _sqliteRecoveryReleaseEpoch = (_sqliteRecoveryReleaseEpoch ?? 0) + 1;
+    SqliteRecoveryGate.clearAfterValidatedRecovery();
+  }
+
+  void _notifySqliteRecoveryRequired() {
+    onRemoteSyncError?.call('Primary SQLite database requires validated recovery before sync can continue');
+  }
+
+  void _observeSqliteRecovery<T>(Future<T> future) {
+    unawaited(
+      future.then<void>(
+        (_) {},
+        onError: (Object error, StackTrace _) {
+          if (error is SqliteDatabaseUnhealthy) {
+            _sqliteRecoveryRequired = true;
+          }
+        },
+      ),
+    );
+  }
+
   Future<void> cancelResumeSyncs() async {
     _syncQueued = false;
+    _localSyncQueued = false;
+    _fullLocalSyncQueued = false;
+    _cancelQueuedHash();
     final tasks = _resumeSyncTasks;
     _syncTask = null;
     _deviceAlbumSyncTask = null;
@@ -118,8 +160,12 @@ class BackgroundSyncManager {
   }
 
   // No need to cancel the task, as it can also be run when the user logs out
-  Future<void> syncLocal({bool full = false}) {
+  Future<void> syncLocal({bool full = false, bool enqueue = false}) {
     if (_deviceAlbumSyncTask != null) {
+      if (enqueue) {
+        _localSyncQueued = true;
+        _fullLocalSyncQueued |= full;
+      }
       return _deviceAlbumSyncTask!.future.catchError((_) {}, test: (error) => error is CanceledError);
     }
 
@@ -136,10 +182,16 @@ class BackgroundSyncManager {
           }
         })
         .whenComplete(() {
+          onLocalSyncComplete?.call();
           if (identical(_deviceAlbumSyncTask, task)) {
             _deviceAlbumSyncTask = null;
+            if (_localSyncQueued) {
+              final queuedFull = _fullLocalSyncQueued;
+              _localSyncQueued = false;
+              _fullLocalSyncQueued = false;
+              unawaited(syncLocal(full: queuedFull));
+            }
           }
-          onLocalSyncComplete?.call();
         })
         .catchError((error) {
           if (error is! CanceledError) {
@@ -210,33 +262,84 @@ class BackgroundSyncManager {
     return RemoteThenLocalSync(remoteSync: remoteSync, deferredLocalSync: deferredLocalSync);
   }
 
-  Future<void> hashAssets() {
+  void _cancelQueuedHash() {
+    _rejectQueuedHash(CanceledError());
+  }
+
+  void _rejectQueuedHash(Object error, [StackTrace? stack]) {
+    final queued = _queuedHash;
+    _queuedHash = null;
+    queued?.completeError(error, stack);
+  }
+
+  /// A saved copy can miss the asset snapshot of a running hash pass. Queue one
+  /// shared follow-up in that case, and wait for that pass rather than the old
+  /// snapshot. Explicit enqueue callers observe failures/cancellation so they
+  /// cannot start backup as though the requested pass completed successfully.
+  Future<void> hashAssets({bool enqueue = false}) {
+    if (_sqliteRecoveryRequired) {
+      final error = StateError('Primary SQLite database requires validated recovery before hashing can continue');
+      onHashingError?.call(error.toString());
+      return enqueue ? Future.error(error) : Future.value();
+    }
     if (_hashTask != null) {
+      if (enqueue) {
+        return (_queuedHash ??= Completer<void>()).future;
+      }
       return _hashTask!.future.catchError((_) {}, test: (error) => error is CanceledError);
     }
 
     onHashingStart?.call();
 
-    final task = _hashTask = runInIsolateGentle(
-      computation: (ref) => ref.read(hashServiceProvider).hashAssets(),
-      debugLabel: 'hash-assets',
-    );
+    final task = _hashTask = createHashTask();
 
     return task
+        .catchError((Object error, StackTrace stack) {
+          if (error is SqliteDatabaseUnhealthy) {
+            // Observe before the completion hook can schedule another writer.
+            _sqliteRecoveryRequired = true;
+            _rejectQueuedHash(error, stack);
+          }
+          Error.throwWithStackTrace(error, stack);
+        })
         .whenComplete(() {
           onHashingComplete?.call();
           if (identical(_hashTask, task)) {
             _hashTask = null;
+            final queued = _queuedHash;
+            _queuedHash = null;
+            if (queued != null) {
+              unawaited(
+                Future.sync(() => hashAssets(enqueue: true)).then<void>(
+                  (_) => queued.complete(),
+                  onError: (Object error, StackTrace stack) => queued.completeError(error, stack),
+                ),
+              );
+            }
           }
         })
-        .catchError((error) {
+        .catchError((Object error, StackTrace stack) {
           if (error is! CanceledError) {
             onHashingError?.call(error.toString());
+          }
+          if (enqueue) {
+            Error.throwWithStackTrace(error, stack);
           }
         });
   }
 
+  @protected
+  Cancelable<void> createHashTask() => runInIsolateGentle(
+    computation: (ref) => ref.read(hashServiceProvider).hashAssets(),
+    debugLabel: 'hash-assets',
+    sqliteRecoveryReleaseEpoch: _sqliteRecoveryReleaseEpoch,
+  );
+
   Future<bool> syncRemote({bool enqueue = false}) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value(false);
+    }
     if (_syncTask != null) {
       _syncQueued |= enqueue;
       return _syncTask!.future.then((result) => result ?? false).catchError((_) => false);
@@ -259,6 +362,9 @@ class BackgroundSyncManager {
           if (error is! CanceledError) {
             onRemoteSyncError?.call(error.toString());
           }
+          if (error is SqliteDatabaseUnhealthy) {
+            _sqliteRecoveryRequired = true;
+          }
           _syncQueued = false;
           return false;
         })
@@ -276,44 +382,65 @@ class BackgroundSyncManager {
   }
 
   @protected
-  Cancelable<bool?> createRemoteSyncTask() =>
-      runInIsolateGentle(computation: (ref) => ref.read(syncStreamServiceProvider).sync(), debugLabel: 'remote-sync');
+  Cancelable<bool?> createRemoteSyncTask() => runInIsolateGentle(
+    computation: (ref) => ref.read(syncStreamServiceProvider).sync(),
+    debugLabel: 'remote-sync',
+    sqliteRecoveryReleaseEpoch: _sqliteRecoveryReleaseEpoch,
+  );
 
   Future<void> syncWebsocketBatchV1(List<dynamic> batchData) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value();
+    }
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
-    _syncWebsocketTask = _handleWsAssetUploadReadyV1Batch(batchData);
+    _syncWebsocketTask = _handleWsAssetUploadReadyV1Batch(batchData, _sqliteRecoveryReleaseEpoch);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
     });
   }
 
   Future<void> syncWebsocketBatchV2(List<dynamic> batchData) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value();
+    }
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
-    _syncWebsocketTask = _handleWsAssetUploadReadyV2Batch(batchData);
+    _syncWebsocketTask = _handleWsAssetUploadReadyV2Batch(batchData, _sqliteRecoveryReleaseEpoch);
+    _observeSqliteRecovery(_syncWebsocketTask!.future);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
     });
   }
 
   Future<void> syncWebsocketEditV1(dynamic data) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value();
+    }
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
-    _syncWebsocketTask = _handleWsAssetEditReadyV1(data);
+    _syncWebsocketTask = _handleWsAssetEditReadyV1(data, _sqliteRecoveryReleaseEpoch);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
     });
   }
 
   Future<void> syncWebsocketEditV2(dynamic data) {
+    if (_sqliteRecoveryRequired) {
+      _notifySqliteRecoveryRequired();
+      return Future.value();
+    }
     if (_syncWebsocketTask != null) {
       return _syncWebsocketTask!.future;
     }
-    _syncWebsocketTask = _handleWsAssetEditReadyV2(data);
+    _syncWebsocketTask = _handleWsAssetEditReadyV2(data, _sqliteRecoveryReleaseEpoch);
+    _observeSqliteRecovery(_syncWebsocketTask!.future);
     return _syncWebsocketTask!.whenComplete(() {
       _syncWebsocketTask = null;
     });
@@ -358,22 +485,28 @@ class BackgroundSyncManager {
   }
 }
 
-Cancelable<void> _handleWsAssetUploadReadyV1Batch(List<dynamic> batchData) => runInIsolateGentle(
-  computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetUploadReadyV1Batch(batchData),
-  debugLabel: 'websocket-batch',
-);
+Cancelable<void> _handleWsAssetUploadReadyV1Batch(List<dynamic> batchData, int? sqliteRecoveryReleaseEpoch) =>
+    runInIsolateGentle(
+      computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetUploadReadyV1Batch(batchData),
+      debugLabel: 'websocket-batch',
+      sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
+    );
 
-Cancelable<void> _handleWsAssetUploadReadyV2Batch(List<dynamic> batchData) => runInIsolateGentle(
-  computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetUploadReadyV2Batch(batchData),
-  debugLabel: 'websocket-batch',
-);
+Cancelable<void> _handleWsAssetUploadReadyV2Batch(List<dynamic> batchData, int? sqliteRecoveryReleaseEpoch) =>
+    runInIsolateGentle(
+      computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetUploadReadyV2Batch(batchData),
+      debugLabel: 'websocket-batch',
+      sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
+    );
 
-Cancelable<void> _handleWsAssetEditReadyV1(dynamic data) => runInIsolateGentle(
+Cancelable<void> _handleWsAssetEditReadyV1(dynamic data, int? sqliteRecoveryReleaseEpoch) => runInIsolateGentle(
   computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV1(data),
   debugLabel: 'websocket-edit',
+  sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
 );
 
-Cancelable<void> _handleWsAssetEditReadyV2(dynamic data) => runInIsolateGentle(
+Cancelable<void> _handleWsAssetEditReadyV2(dynamic data, int? sqliteRecoveryReleaseEpoch) => runInIsolateGentle(
   computation: (ref) => ref.read(syncStreamServiceProvider).handleWsAssetEditReadyV2(data),
   debugLabel: 'websocket-edit',
+  sqliteRecoveryReleaseEpoch: sqliteRecoveryReleaseEpoch,
 );

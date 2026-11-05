@@ -7,11 +7,14 @@ import 'package:immich_mobile/domain/models/asset/base_asset.model.dart';
 import 'package:immich_mobile/domain/models/remote_image_http_exception.dart';
 import 'package:immich_mobile/extensions/build_context_extensions.dart';
 import 'package:immich_mobile/extensions/theme_extensions.dart';
+import 'package:immich_mobile/presentation/widgets/images/decoded_image_source.dart';
 import 'package:immich_mobile/presentation/widgets/images/image_provider.dart';
+import 'package:immich_mobile/presentation/widgets/images/local_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/remote_image_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumb_hash_provider.dart';
 import 'package:immich_mobile/presentation/widgets/images/thumbnail_framing.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/constants.dart';
+import 'package:immich_mobile/providers/infrastructure/network_status.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/remote_image_reconciliation.provider.dart';
 import 'package:logging/logging.dart';
 import 'package:openapi/api.dart';
@@ -31,6 +34,10 @@ class Thumbnail extends ConsumerStatefulWidget {
   final List<Rect> faces;
   final bool preserveEdgeContent;
 
+  /// Keep a mosaic cell filled while retaining the source image proportions.
+  /// Other thumbnail surfaces preserve their existing edge/face framing.
+  final bool fillCell;
+
   /// Upright full-image geometry shared with the timeline's motion surface.
   final Size? framingImageSize;
 
@@ -39,6 +46,7 @@ class Thumbnail extends ConsumerStatefulWidget {
     this.fit = BoxFit.cover,
     this.faces = const [],
     this.preserveEdgeContent = false,
+    this.fillCell = false,
     this.framingImageSize,
     this.thumbhashProvider,
     this.sourceRevision,
@@ -51,6 +59,7 @@ class Thumbnail extends ConsumerStatefulWidget {
     this.fit = BoxFit.cover,
     this.faces = const [],
     this.preserveEdgeContent = false,
+    this.fillCell = false,
     this.framingImageSize,
     this.sourceRevision,
 
@@ -65,6 +74,7 @@ class Thumbnail extends ConsumerStatefulWidget {
     this.fit = BoxFit.cover,
     this.faces = const [],
     this.framingImageSize,
+    this.fillCell = false,
 
     /// Decode size for local thumbnails. This does not affect the widget size.
     Size size = kThumbnailResolution,
@@ -89,7 +99,10 @@ class Thumbnail extends ConsumerStatefulWidget {
          ),
          _ => null,
        },
-       preserveEdgeContent = asset != null && shouldPreserveEdgeContent(asset.name, width: asset.width, height: asset.height),
+       preserveEdgeContent =
+           !fillCell &&
+           asset != null &&
+           shouldPreserveEdgeContent(asset.name, width: asset.width, height: asset.height),
        imageProvider = asset == null
            ? null
            : getThumbnailImageProvider(asset, size: size, remoteSize: remoteSize, remoteMediaSize: remoteMediaSize);
@@ -258,15 +271,46 @@ class _ThumbnailState extends ConsumerState<Thumbnail> with SingleTickerProvider
     _stopListeningToThumbhashStream();
   }
 
+  // Reflow can cross the thumbnail/preview quality threshold. Only that
+  // resolution parameter may differ: endpoint, asset, edit/revision query and
+  // every other URL component must still match.
+  bool _sameRemoteThumbnail(String before, String after) {
+    if (before == after) {
+      return true;
+    }
+    final old = Uri.tryParse(before);
+    final next = Uri.tryParse(after);
+    const resolutions = {'thumbnail', 'preview'};
+    return old != null &&
+        next != null &&
+        old.pathSegments.lastOrNull == 'thumbnail' &&
+        resolutions.contains(old.queryParameters['size']) &&
+        resolutions.contains(next.queryParameters['size']) &&
+        old.replace(queryParameters: {...old.queryParametersAll, 'size': next.queryParametersAll['size']}) == next;
+  }
+
   @override
   void didUpdateWidget(Thumbnail oldWidget) {
     super.didUpdateWidget(oldWidget);
 
     if (widget.imageProvider != oldWidget.imageProvider) {
-      // A virtualized tile can now represent another asset (or no asset).
-      // Never keep the previous photo/blurhash while the replacement fails.
+      // Deletion reflow changes the decode size. Keep the same source's
+      // pixels while that resize decodes, so neighbors never flash a gradient.
+      // A recycled tile, changed revision/URL or edited device photo still
+      // clears immediately; it must not display another asset's old pixels.
+      final sameSource =
+          widget.sourceRevision == oldWidget.sourceRevision &&
+          switch ((oldWidget.imageProvider, widget.imageProvider)) {
+            (final RemoteImageProvider old, final RemoteImageProvider next) =>
+              old.edited == next.edited && _sameRemoteThumbnail(old.url, next.url),
+            (final LocalThumbProvider old, final LocalThumbProvider next) =>
+              old.id == next.id && old.assetType == next.assetType && old.checksum == next.checksum,
+            _ => false,
+          };
       _stopListeningToStream();
-      _clearImages();
+      if (!sameSource) {
+        _clearImages();
+      }
       _loadImage();
       return;
     }
@@ -306,6 +350,15 @@ class _ThumbnailState extends ConsumerState<Thumbnail> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
+    if (widget.imageProvider is RemoteImageProvider) {
+      ref.listen(networkTransportAvailableProvider, (previous, next) {
+        if (previous?.valueOrNull == false && next.valueOrNull == true && _hadImageError) {
+          // A single retry per offline -> online transition, retaining any
+          // already decoded fallback. No metadata rewrite or scroll is needed.
+          _loadFromImageProvider(retry: true);
+        }
+      });
+    }
     final colorScheme = context.colorScheme;
     final gradient = _gradientCache[colorScheme] ??= LinearGradient(
       colors: [colorScheme.surfaceContainer, colorScheme.surfaceContainer.darken(amount: .1)],
@@ -323,6 +376,7 @@ class _ThumbnailState extends ConsumerState<Thumbnail> with SingleTickerProvider
           fit: widget.fit,
           faces: widget.faces,
           preserveEdgeContent: widget.preserveEdgeContent,
+          fillCell: widget.fillCell,
           framingImageSize: widget.framingImageSize,
           placeholderGradient: gradient,
         );
@@ -348,6 +402,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
   final BoxFit fit;
   final List<Rect> faces;
   final bool preserveEdgeContent;
+  final bool fillCell;
   final Size? framingImageSize;
   final Gradient placeholderGradient;
 
@@ -358,6 +413,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
     required this.fit,
     required this.faces,
     required this.preserveEdgeContent,
+    required this.fillCell,
     required this.framingImageSize,
     required this.placeholderGradient,
   });
@@ -371,6 +427,7 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       fit: fit,
       faces: faces,
       preserveEdgeContent: preserveEdgeContent,
+      fillCell: fillCell,
       framingImageSize: framingImageSize,
       placeholderGradient: placeholderGradient,
     );
@@ -385,20 +442,25 @@ class _ThumbnailLeaf extends LeafRenderObjectWidget {
       ..fit = fit
       ..faces = faces
       ..preserveEdgeContent = preserveEdgeContent
+      ..fillCell = fillCell
       ..framingImageSize = framingImageSize
       ..placeholderGradient = placeholderGradient;
   }
 }
 
-class _ThumbnailRenderBox extends RenderBox {
+class _ThumbnailRenderBox extends RenderBox implements DecodedImageSource {
   ui.Image? _image;
   ui.Image? _previousImage;
   double _fadeValue;
   BoxFit _fit;
   List<Rect> _faces;
   bool _preserveEdgeContent;
+  bool _fillCell;
   Size? _framingImageSize;
   Gradient _placeholderGradient;
+
+  @override
+  bool get hasDecodedImage => (_image != null && _fadeValue > 0) || (_previousImage != null && _fadeValue < 1);
 
   @override
   bool isRepaintBoundary = true;
@@ -410,6 +472,7 @@ class _ThumbnailRenderBox extends RenderBox {
     required this._fit,
     required this._faces,
     required this._preserveEdgeContent,
+    required this._fillCell,
     required this._framingImageSize,
     required this._placeholderGradient,
   });
@@ -454,6 +517,7 @@ class _ThumbnailRenderBox extends RenderBox {
     viewportSize: size,
     faces: _faces,
     preserveEdgeContent: _preserveEdgeContent,
+    allowContain: !_fillCell,
     fit: _fit,
   );
 
@@ -500,6 +564,13 @@ class _ThumbnailRenderBox extends RenderBox {
   set preserveEdgeContent(bool value) {
     if (_preserveEdgeContent != value) {
       _preserveEdgeContent = value;
+      markNeedsPaint();
+    }
+  }
+
+  set fillCell(bool value) {
+    if (_fillCell != value) {
+      _fillCell = value;
       markNeedsPaint();
     }
   }

@@ -1,0 +1,304 @@
+package app.alextran.immich.recovery
+
+import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
+
+class RecoveryStoreTest {
+  @get:Rule val temporary = TemporaryFolder()
+  private fun sync(directory: File) { FileChannel.open(directory.toPath(), StandardOpenOption.READ).use { it.force(true) } }
+  private fun source(): File = File(temporary.root, "immich.sqlite").apply { writeText("original database evidence") }
+  private fun root(): File = File(temporary.root, "recovery")
+  private fun candidate(): File = File(root(), "attempt/candidate/immich.sqlite").apply { parentFile!!.mkdirs(); writeText("validated candidate") }
+  private fun refuses(action: () -> Unit) {
+    try { action(); fail("unsafe operation was accepted") } catch (_: IllegalStateException) { }
+  }
+
+  @Test fun retainedRecoveryBlockHasItsOriginalCauseAndCannotBeClearedByNativeReactivation() {
+    val original = source(); val before = RecoveryStore.hash(original)
+    RecoveryStore(root(), original, ::sync).use { store ->
+      store.halt("startup_integrity_failed", 779)
+      assertEquals("recovery_blocked", store.diagnostic()["status"])
+    }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      repeat(5) { assertNull(store.acquireNativeRead()) }
+      assertEquals("persisted_recovery_block", store.diagnostic()["status"])
+      assertEquals("startup_integrity_failed", store.diagnostic()["reason"])
+      assertEquals(779, store.diagnostic()["sqliteCode"])
+      refuses { store.acquire() }
+      assertEquals(before, RecoveryStore.hash(original))
+    }
+  }
+
+  @Test fun nativeReadFailuresDoNotManufactureCorruptionOrChangeTheActiveGeneration() {
+    val original = source(); val before = RecoveryStore.hash(original)
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val flutter = store.acquire(); store.probeComplete(flutter.getValue("token"))
+      repeat(20) {
+        val native = store.acquireNativeRead()!!
+        store.noteNativeReadFailure("cloud_reader_timeout")
+        store.release(native.getValue("token"))
+        assertEquals("ready", store.diagnostic()["status"])
+        assertEquals("cloud_reader_timeout", store.diagnostic()["readerError"])
+        store.noteNativeReadSuccess()
+        assertFalse(store.diagnostic().containsKey("readerError"))
+        assertEquals(original, store.selected())
+      }
+      store.release(flutter.getValue("token"))
+      assertEquals(before, RecoveryStore.hash(original))
+    }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      assertEquals("startup_probe_pending", store.diagnostic()["status"])
+      assertNull(store.acquireNativeRead())
+      val first = store.acquire(); store.probeComplete(first.getValue("token"))
+      assertEquals("ready", store.diagnostic()["status"])
+      store.release(first.getValue("token"))
+    }
+  }
+
+  @Test fun allLeasesMustCloseAndNoNewPoolCanStart() {
+    RecoveryStore(root(), source(), ::sync).use { store ->
+      val first = store.acquire(); store.probeComplete(first.getValue("token")); val second = store.acquire()
+      refuses { store.begin() }
+      refuses { store.acquire() }
+      store.release(first.getValue("token"))
+      refuses { store.begin() }
+      store.release(second.getValue("token"))
+      val recovery = store.begin()
+      refuses { store.acquire() }
+      store.finish(recovery.getValue("token"))
+      refuses { store.acquire() }
+    }
+  }
+  @Test fun verifiedExternalZipAloneEnablesSeparateFreshPromotionAndRetainsOriginals() {
+    val original = source()
+    File("$original-wal").writeBytes(byteArrayOf())
+    File("$original-shm").writeText("synthetic checkpoint evidence")
+    RecoveryStore(root(), original, ::sync).use { store ->
+      store.halt()
+      val output = ByteArrayOutputStream()
+      val proof = RecoveryExport.writeVerified(store, output) { ByteArrayInputStream(output.toByteArray()) }
+      assertEquals(64, proof.getValue("zipHash").length)
+      val names = mutableListOf<String>()
+      java.util.zip.ZipInputStream(ByteArrayInputStream(output.toByteArray())).use { zip ->
+        while (true) { val entry = zip.nextEntry ?: break; names.add(entry.name); zip.readBytes() }
+      }
+      assertTrue(names.containsAll(listOf("source/immich.sqlite", "source/immich.sqlite-wal", "source/immich.sqlite-shm", "export-report.json")))
+      val session = store.beginFresh(proof.getValue("token"))
+      val replacement = candidate()
+      refuses { store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement)) }
+      store.promoteFresh(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+      assertEquals(replacement.path, store.selected().path)
+      assertEquals("original database evidence", original.readText())
+      assertTrue(File("$original-shm").isFile)
+    }
+  }
+  @Test fun unreadableOrTruncatedExternalZipNeverAuthorizesFreshStart() {
+    RecoveryStore(root(), source(), ::sync).use { store ->
+      store.halt()
+      refuses { RecoveryExport.writeVerified(store, ByteArrayOutputStream()) { ByteArrayInputStream(byteArrayOf()) } }
+      refuses { store.beginFresh("not-issued") }
+      refuses { store.acquire() }
+    }
+  }
+  @Test fun sourceChangedAfterVerifiedExportCannotBeDiscarded() {
+    val original = source()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      store.halt()
+      val output = ByteArrayOutputStream()
+      val proof = RecoveryExport.writeVerified(store, output) { ByteArrayInputStream(output.toByteArray()) }
+      File("$original-wal").writeText("new transaction")
+      refuses { store.beginFresh(proof.getValue("token")) }
+      assertEquals(original.path, store.selected().path)
+    }
+  }
+  @Test fun processDeathRequiresNewExportAndConsentInsteadOfResumingFreshStart() {
+    val original = source()
+    var proof = ""
+    RecoveryStore(root(), original, ::sync).use { store ->
+      store.halt()
+      val output = ByteArrayOutputStream()
+      proof = RecoveryExport.writeVerified(store, output) { ByteArrayInputStream(output.toByteArray()) }.getValue("token")
+      store.beginFresh(proof)
+      candidate()
+    }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      refuses { store.beginFresh(proof) }
+      refuses { store.acquire() }
+      assertEquals(original.path, store.selected().path)
+    }
+  }
+  @Test fun parallelEnginesWaitForFirstReadOnlyProbe() {
+    RecoveryStore(root(), source(), ::sync).use { store ->
+      val first = store.acquire()
+      assertEquals("true", first["probe"])
+      assertEquals("true", store.acquire()["wait"])
+      store.probeComplete(first.getValue("token"))
+      val second = store.acquire()
+      assertEquals("false", second["probe"])
+      store.release(first.getValue("token")); store.release(second.getValue("token"))
+    }
+  }
+  @Test fun nativeReadersWaitForProbeAndDrainBeforeRecovery() {
+    RecoveryStore(root(), source(), ::sync).use { store ->
+      assertNull(store.acquireNativeRead())
+      val first = store.acquire()
+      assertNull(store.acquireNativeRead())
+      store.probeComplete(first.getValue("token"))
+      store.release(first.getValue("token"))
+      val reader = checkNotNull(store.acquireNativeRead())
+      refuses { store.begin() }
+      assertNull(store.acquireNativeRead())
+      store.release(reader.getValue("token"))
+      val session = store.begin()
+      val replacement = candidate()
+      store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+      assertNull(store.acquireNativeRead())
+      val next = store.acquire()
+      store.probeComplete(next.getValue("token"))
+      val newReader = checkNotNull(store.acquireNativeRead())
+      assertEquals(replacement.canonicalPath, File(newReader.getValue("path")).canonicalPath)
+      store.release(newReader.getValue("token")); store.release(next.getValue("token"))
+    }
+  }
+  @Test fun failedAttemptSurvivesRestartAndKeepsOriginal() {
+    val original = source()
+    RecoveryStore(root(), original, ::sync).use { store -> store.begin(); candidate() }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      refuses { store.acquire() }
+      assertEquals(original.path, store.selected().path)
+      assertTrue(candidate().exists())
+      store.begin()
+    }
+    assertEquals("original database evidence", original.readText())
+  }
+  @Test fun selectionCommitsAtomicallyAndSurvivesRestart() {
+    val original = source()
+    val replacement = candidate()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val session = store.begin()
+      store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+      val connection = store.acquire()
+      assertEquals(replacement.path, connection["path"])
+      store.release(connection.getValue("token"))
+    }
+    RecoveryStore(root(), original, ::sync).use { store -> assertEquals(replacement.path, store.selected().path) }
+    assertEquals("original database evidence", original.readText())
+  }
+  @Test fun changedCandidateOrWalNeverPromotes() {
+    val original = source()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val session = store.begin()
+      val replacement = candidate()
+      refuses { store.promote(session.getValue("token"), replacement.path, "bad hash") }
+      File("$replacement-wal").writeText("uncheckpointed")
+      refuses { store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement)) }
+      assertEquals(original.path, store.selected().path)
+    }
+  }
+  @Test fun androidDataDirectoryAliasUsesCanonicalRelativeSelection() {
+    val original = source()
+    root().mkdirs()
+    val user = File(temporary.root, "user").apply { mkdirs() }
+    val aliasParent = File(user, "0")
+    java.nio.file.Files.createSymbolicLink(aliasParent.toPath(), temporary.root.toPath())
+    val alias = File(aliasParent, "recovery")
+    val replacement = candidate()
+    RecoveryStore(alias, original, ::sync).use { store ->
+      val session = store.begin()
+      store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+      assertEquals(replacement.canonicalPath, store.selected().canonicalPath)
+    }
+    RecoveryStore(alias, original, ::sync).use { store ->
+      val lease = store.acquire()
+      assertEquals(replacement.canonicalPath, File(lease.getValue("path")).canonicalPath)
+      store.release(lease.getValue("token"))
+    }
+    assertEquals("original database evidence", original.readText())
+    assertEquals("FOTO23\nready\nattempt/candidate/immich.sqlite", File(root(), "selection").readText())
+  }
+  @Test fun missingSelectedDatabaseFailsInsteadOfCreatingEmptyDatabase() {
+    val original = source()
+    val replacement = candidate()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val session = store.begin()
+      store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+    }
+    replacement.delete()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      refuses { store.acquire() }; refuses { store.begin() }
+      assertEquals("selection_unavailable", store.exportReason())
+    }
+    assertTrue(original.exists())
+  }
+  @Test fun lostSelectorNeverRollsBackToStaleOriginal() {
+    val original = source()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val session = store.begin()
+      val replacement = File(root(), "attempt-real/candidate/immich.sqlite").apply { parentFile!!.mkdirs(); writeText("new data") }
+      store.promote(session.getValue("token"), replacement.path, RecoveryStore.hash(replacement))
+    }
+    File(root(), "selection").delete()
+    RecoveryStore(root(), original, ::sync).use { store ->
+      refuses { store.acquire() }; refuses { store.begin() }
+      assertEquals("selection_unavailable", store.exportReason())
+      assertTrue(store.canExport())
+      assertFalse(File(root(), "selection").exists())
+    }
+  }
+  @Test fun fsyncFailureRetainsAdmissionBarrier() {
+    val original = source()
+    var failSync = false
+    RecoveryStore(root(), original) { if (failSync) error("disk full") else sync(it) }.use { store ->
+      failSync = true
+      refuses { store.begin() }
+      refuses { store.acquire() }
+      assertEquals(original.path, store.selected().path)
+    }
+  }
+  @Test fun newlyCreatedNoBackupDirectoryIsDurableBeforeAdmission() {
+    val original = source()
+    val noBackup = File(temporary.root, "no_backup")
+    val synced = mutableListOf<File>()
+    RecoveryStore(File(noBackup, "sqlite-recovery"), original) { synced.add(it.canonicalFile); sync(it) }.use { store ->
+      assertTrue(synced.contains(noBackup.canonicalFile))
+      assertTrue(synced.contains(temporary.root.canonicalFile))
+      val lease = store.acquire()
+      store.release(lease.getValue("token"))
+    }
+  }
+  @Test fun exportIncludesPrimaryWalShmAndRedactedReportWithoutCacheArchive() {
+    val original = source()
+    File("$original-wal").writeText("committed WAL evidence")
+    File("$original-shm").writeText("WAL-index evidence")
+    File(temporary.root, "sqlite-recovery/build22/immich.sqlite-wal").apply { parentFile!!.mkdirs(); writeText("retained Build 22 WAL") }
+    RecoveryStore(root(), original, ::sync).use { store ->
+      val session = store.begin(); store.finish(session.getValue("token"))
+      val bytes = java.io.ByteArrayOutputStream()
+      RecoveryExport.write(store, bytes)
+      val entries = mutableMapOf<String, String>()
+      java.util.zip.ZipInputStream(bytes.toByteArray().inputStream()).use { zip ->
+        while (true) { val entry = zip.nextEntry ?: break; entries[entry.name] = zip.readBytes().toString(Charsets.UTF_8) }
+      }
+      assertEquals("original database evidence", entries["source/immich.sqlite"])
+      assertEquals("committed WAL evidence", entries["source/immich.sqlite-wal"])
+      assertEquals("WAL-index evidence", entries["source/immich.sqlite-shm"])
+      assertEquals("retained Build 22 WAL", entries["build22-recovery/build22/immich.sqlite-wal"])
+      assertTrue(entries.getValue("export-report.json").contains(RecoveryStore.hash(original)))
+      assertFalse(entries.getValue("export-report.json").contains("original database evidence"))
+      assertFalse(entries.keys.any { it.endsWith("owner.lock") || it.endsWith("selection") })
+    }
+  }
+  @Test fun orphanSelectionNextIsNeverInterpretedAsCommitted() {
+    val original = source()
+    root().mkdirs()
+    File(root(), "selection.next").writeText("torn pointer")
+    RecoveryStore(root(), original, ::sync).use { store -> assertEquals(original.path, store.selected().path) }
+  }
+}

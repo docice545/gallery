@@ -29,6 +29,7 @@ import 'package:immich_mobile/presentation/widgets/images/thumbnail_tile.widget.
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_autoplay.dart';
 import 'package:immich_mobile/presentation/widgets/timeline/live_photo_scope.widget.dart';
 import 'package:immich_mobile/providers/infrastructure/asset.provider.dart';
+import 'package:immich_mobile/providers/infrastructure/network_status.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/remote_image_reconciliation.provider.dart';
 import 'package:immich_mobile/providers/infrastructure/thumbnail_framing.provider.dart';
 import 'package:immich_mobile/providers/timeline/multiselect.provider.dart';
@@ -86,9 +87,11 @@ Future<Uint8List> _edgeContentPng() async {
   final canvas = Canvas(recorder);
   canvas.drawRect(const Rect.fromLTWH(0, 0, 100, 200), Paint()..color = Colors.white);
   canvas.drawRect(const Rect.fromLTRB(35, 0, 65, 24), Paint()..color = Colors.black);
-  canvas.drawRect(const Rect.fromLTRB(35, 176, 65, 200), Paint()..color = Colors.blue);
-  canvas.drawRect(const Rect.fromLTRB(0, 76, 18, 124), Paint()..color = Colors.red);
-  canvas.drawRect(const Rect.fromLTRB(82, 76, 100, 124), Paint()..color = Colors.green);
+  // Use explicit sRGB primaries so rawRgba assertions describe the encoded
+  // pixels rather than Material's themed color palette.
+  canvas.drawRect(const Rect.fromLTRB(35, 176, 65, 200), Paint()..color = const Color(0xFF0000FF));
+  canvas.drawRect(const Rect.fromLTRB(0, 76, 18, 124), Paint()..color = const Color(0xFFFF0000));
+  canvas.drawRect(const Rect.fromLTRB(82, 76, 100, 124), Paint()..color = const Color(0xFF008000));
   final picture = recorder.endRecording();
   final image = await picture.toImage(100, 200);
   try {
@@ -348,6 +351,83 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('offline thumbnail retries once on reconnection without metadata or scroll changes', (tester) async {
+    final bytes = (await tester.runAsync(_portraitPng))!;
+    final network = StreamController<bool>.broadcast();
+    addTearDown(network.close);
+    var requests = 0;
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockDecodedMessageHandler(remoteRequest, (message) async {
+      requests++;
+      final uri = Uri.parse((message! as List)[0] as String);
+      if (requests == 1) {
+        return [
+          'HTTP_ERROR',
+          'Remote image request failed (HTTP 400)',
+          {'statusCode': 400, 'requestPath': uri.path, 'finalPath': uri.path},
+        ];
+      }
+      final pointer = malloc<Uint8>(bytes.length)..asTypedList(bytes.length).setAll(0, bytes);
+      return [
+        <Object?, Object?>{'pointer': pointer.address, 'length': bytes.length},
+      ];
+    });
+    addTearDown(() => messenger.setMockDecodedMessageHandler(remoteRequest, (_) async => <Object?>[null]));
+    final revision = DateTime.utc(2026, 10, 26);
+    final source = ValueNotifier<(int, DateTime)>((0, revision));
+    addTearDown(source.dispose);
+    final captureKey = GlobalKey();
+    await tester.pumpConsumerWidgetRaw(
+      Center(
+        child: RepaintBoundary(
+          key: captureKey,
+          child: SizedBox.square(
+            dimension: 100,
+            child: ValueListenableBuilder<(int, DateTime)>(
+              valueListenable: source,
+              builder: (_, value, _) => Thumbnail.remote(
+                remoteId: '8dd6007e-f11b-4bf8-bc3a-121794f37304',
+                thumbhash: '',
+                sourceRevision: value.$2,
+              ),
+            ),
+          ),
+        ),
+      ),
+      overrides: [
+        networkTransportAvailableProvider.overrideWith((_) => network.stream),
+        remoteImageReconciliationProvider.overrideWithValue(
+          RemoteImageReconciliationService(
+            endpoint: Uri.parse('https://example.test/api'),
+            isCurrentSession: () => true,
+            isDeletionComplete: (_) async => false,
+            retireDeletedAsset: (_) async => false,
+            syncIncrementally: () async {},
+          ),
+        ),
+      ],
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+    network.add(false);
+    await tester.pumpAndSettle();
+    source.value = (1, revision);
+    await tester.pumpAndSettle();
+    expect(requests, 1, reason: 'the same failed revision cannot start a retry loop');
+    network.add(true);
+    await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
+    await tester.pumpAndSettle();
+    expect(requests, 2);
+    expect(_pixel(await _capture(tester, captureKey), 48, 12), [0, 0, 255, 255]);
+    network.add(false);
+    await tester.pumpAndSettle();
+    network.add(true);
+    await tester.pumpAndSettle();
+    expect(requests, 2, reason: 'successful photos must not reload on later network transitions');
+    expect(tester.takeException(), isNull);
+  });
+
   for (final replacementPending in [false, true]) {
     testWidgets(
       'recycled tile clears previous pixels when its source becomes ${replacementPending ? 'pending' : 'absent'}',
@@ -443,7 +523,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('edge-content framing renders pixels from the source edge instead of a white center crop', (tester) async {
+  testWidgets('edge-content framing renders pixels from the source edge instead of a white center crop', (
+    tester,
+  ) async {
     final bytes = (await tester.runAsync(_edgeContentPng))!;
     final image = MemoryImage(bytes);
     final captureKey = GlobalKey();
@@ -451,10 +533,7 @@ void main() {
       Center(
         child: RepaintBoundary(
           key: captureKey,
-          child: SizedBox.square(
-            dimension: 100,
-            child: Thumbnail(imageProvider: image, preserveEdgeContent: true),
-          ),
+          child: SizedBox.square(dimension: 100, child: Thumbnail(imageProvider: image, preserveEdgeContent: true)),
         ),
       ),
     );
@@ -483,7 +562,7 @@ void main() {
     expect(tester.widget<TimelineLivePhotoTile>(find.byType(TimelineLivePhotoTile)).faces, same(faces));
     expect(tester.widget<Hero>(find.byType(Hero)).tag, '${asset.heroTag}_7');
     expect(find.text(' 3'), findsOneWidget);
-    expect(find.byIcon(Icons.burst_mode_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
     expect(find.byIcon(Icons.motion_photos_on_rounded), findsOneWidget);
 
     await tester.pump(livePhotoSettlingDelay);

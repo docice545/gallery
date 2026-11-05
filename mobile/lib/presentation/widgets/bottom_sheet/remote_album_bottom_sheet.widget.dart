@@ -18,6 +18,7 @@ import 'package:immich_mobile/presentation/actions/share_link.action.dart';
 import 'package:immich_mobile/presentation/actions/stack.action.dart';
 import 'package:immich_mobile/presentation/widgets/bottom_sheet/base_bottom_sheet.widget.dart';
 import 'package:immich_mobile/presentation/widgets/collection/collection_picker.widget.dart';
+import 'package:immich_mobile/presentation/widgets/icons/proposal/foto_icon.dart';
 import 'package:immich_mobile/providers/user.provider.dart';
 
 class RemoteAlbumBottomSheet extends ConsumerStatefulWidget {
@@ -58,29 +59,60 @@ class _RemoteAlbumBottomSheetState extends ConsumerState<RemoteAlbumBottomSheet>
       maxChildSize: 0.85,
       shouldCloseOnMinExtent: false,
       actions: <ActionColumnButton>[
-        const .new(action: DeleteAction(source: .timeline)),
-        const .new(action: CleanupLocalAction(source: .timeline)),
-        const .new(action: AssetDebugAction(source: .timeline)),
-        const .new(action: ShareAction(source: .timeline)),
-        const .new(action: ShareLinkAction(source: .timeline)),
+        const .new(
+          fotoKind: FotoIconKind.trash,
+          action: DeleteAction(source: .timeline),
+        ),
+        const .new(
+          fotoKind: FotoIconKind.debug,
+          action: AssetDebugAction(source: .timeline),
+        ),
+        const .new(
+          fotoKind: FotoIconKind.share,
+          action: ShareAction(source: .timeline),
+        ),
+        const .new(
+          fotoKind: FotoIconKind.link,
+          action: ShareLinkAction(source: .timeline),
+        ),
 
         if (ownsAlbum) ...const [
-          .new(action: ArchiveAction(source: .timeline)),
-          .new(action: FavoriteAction(source: .timeline)),
+          .new(
+            fotoKind: FotoIconKind.archive,
+            action: ArchiveAction(source: .timeline),
+          ),
+          .new(
+            fotoKind: FotoIconKind.favorite,
+            action: FavoriteAction(source: .timeline),
+          ),
         ],
-        const .new(action: DownloadAction(source: .timeline)),
+        const .new(
+          fotoKind: FotoIconKind.download,
+          action: DownloadAction(source: .timeline),
+        ),
         if (ownsAlbum) ...const [
           .new(action: EditDateTimeAction(source: .timeline)),
           .new(action: EditLocationAction(source: .timeline)),
-          .new(action: LockAction(source: .timeline)),
-          .new(action: StackAction(source: .timeline)),
-          .new(action: ManageStackAction(source: .timeline)),
+          .new(
+            fotoKind: FotoIconKind.lock,
+            action: LockAction(source: .timeline),
+          ),
+          .new(
+            fotoKind: FotoIconKind.stack,
+            action: StackAction(source: .timeline),
+          ),
+          .new(
+            fotoKind: FotoIconKind.stack,
+            action: ManageStackAction(source: .timeline),
+          ),
         ],
         if (ownsAlbum) ...[
           ActionColumnButton(
+            fotoKind: FotoIconKind.removeAlbum,
             action: RemoveFromAlbumAction(source: .timeline, albumId: widget.album.id),
           ),
           ActionColumnButton(
+            fotoKind: FotoIconKind.cover,
             action: SetAlbumCoverAction(source: .timeline, albumId: widget.album.id),
           ),
         ],

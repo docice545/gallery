@@ -19,6 +19,7 @@ import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { isEmpty, isUndefined, omitBy } from 'lodash-es';
 import { InjectKysely } from 'nestjs-kysely';
 import { randomUUID } from 'node:crypto';
+import { isAbsolute, resolve } from 'node:path';
 import type { AuthDto } from 'src/dtos/auth.dto.js';
 import type { DeletionFile, DeletionRootIdentity } from 'src/schema/tables/asset-deletion.table.js';
 import { StorageCore } from 'src/cores/storage.core.js';
@@ -35,6 +36,7 @@ import {
   StorageFolder,
   TimeBucketSize,
 } from 'src/enum.js';
+import { lockAssetStacks, repairStackPrimaries } from 'src/repositories/stack.repository.js';
 import { DB } from 'src/schema/index.js';
 import { AssetAudioTable, AssetKeyframeTable, AssetVideoTable } from 'src/schema/tables/asset-av.table.js';
 import { AssetExifTable } from 'src/schema/tables/asset-exif.table.js';
@@ -307,6 +309,8 @@ type UpsertExifOptions = {
   video?: Insertable<AssetVideoTable>;
   keyframes?: Insertable<AssetKeyframeTable>;
   lockedPropertiesBehavior: 'override' | 'append' | 'skip';
+  /** Revision observed before reading EXIF/XMP; null means no row existed yet. */
+  expectedUpdateId?: string | null;
 };
 
 const distinctLocked = <T extends LockableProperty[] | null>(eb: ExpressionBuilder<DB, 'asset_exif'>, columns: T) =>
@@ -416,25 +420,7 @@ export function withTimeBucketAssetFilters<O>(
   return (
     qb
       .$if(!!options.forceEmptyResult, (qb) => qb.where(sql<SqlBool>`false`))
-      .$if(!!options.isTrashed, (qb) =>
-        qb.where((eb) =>
-          eb.or([
-            // Active external index tombstones also have deletedAt; they are
-            // not user Trash. A failed authorized deletion remains retryable.
-            eb('asset.status', '=', AssetStatus.Trashed),
-            eb.and([
-              eb('asset.status', '=', AssetStatus.Deleted),
-              eb.exists(
-                eb
-                  .selectFrom('asset_deletion_tombstone')
-                  .select('assetId')
-                  .whereRef('assetId', '=', 'asset.id')
-                  .where('state', '!=', 'complete'),
-              ),
-            ]),
-          ]),
-        ),
-      )
+      .$if(!!options.isTrashed, (qb) => qb.where('asset.status', '=', AssetStatus.Trashed))
       .where('asset.deletedAt', options.isTrashed ? 'is not' : 'is', null)
       .$if(
         !!options.bbox ||
@@ -693,7 +679,14 @@ export class AssetRepository {
       },
     ],
   })
-  async upsertExif({ exif, audio, video, keyframes, lockedPropertiesBehavior }: UpsertExifOptions): Promise<void> {
+  async upsertExif({
+    exif,
+    audio,
+    video,
+    keyframes,
+    lockedPropertiesBehavior,
+    expectedUpdateId,
+  }: UpsertExifOptions): Promise<void> {
     let query = this.db;
     if (audio) {
       (query as any) = this.db.with('audio', (qb) =>
@@ -766,7 +759,14 @@ export class AssetRepository {
           const skipLocked = <T extends keyof AssetExifTable>(col: T) =>
             eb
               .case()
-              .when(sql`${col}`, '=', eb.fn.any('asset_exif.lockedProperties'))
+              .when(
+                eb.or([
+                  eb(sql`${col}`, '=', eb.fn.any('asset_exif.lockedProperties')),
+                  ...(expectedUpdateId !== undefined && (lockableProperties as readonly string[]).includes(col)
+                    ? [eb('asset_exif.updateId', 'is distinct from', expectedUpdateId)]
+                    : []),
+                ]),
+              )
               .then(eb.ref(`asset_exif.${col}`))
               .else(eb.ref(`excluded.${col}`))
               .end();
@@ -1697,6 +1697,31 @@ export class AssetRepository {
     return this.db.selectFrom('asset').selectAll('asset').where('asset.id', '=', anyUuid(ids)).execute();
   }
 
+  async getActiveTimelineRepresentativeIds(ids: string[], ownerId: string): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await this.db
+      .selectFrom('asset as changed')
+      .leftJoin('stack', 'stack.id', 'changed.stackId')
+      .innerJoin('asset as representative', (join) =>
+        join.on((eb) =>
+          eb.or([
+            eb.and([eb('changed.stackId', 'is', null), eb('representative.id', '=', eb.ref('changed.id'))]),
+            eb.and([eb('stack.ownerId', '=', ownerId), eb('representative.id', '=', eb.ref('stack.primaryAssetId'))]),
+          ]),
+        ),
+      )
+      .select('representative.id')
+      .where('changed.id', '=', anyUuid(ids))
+      .where('changed.ownerId', '=', ownerId)
+      .where('representative.ownerId', '=', ownerId)
+      .where('representative.status', '=', AssetStatus.Active)
+      .where('representative.deletedAt', 'is', null)
+      .where('representative.visibility', 'in', [AssetVisibility.Timeline, AssetVisibility.Archive])
+      .distinct()
+      .execute();
+    return rows.map(({ id }) => id);
+  }
+
   @GenerateSql({ params: [[DummyValue.UUID]] })
   getByIdsWithAllRelationsButStacks(ids: string[], viewingUserId?: string) {
     return this.db
@@ -1805,14 +1830,55 @@ export class AssetRepository {
   }
 
   @GenerateSql({ params: [DummyValue.UUID] })
-  getById(
-    id: string,
-    { exifInfo, faces, files, library, owner, smartSearch, stack, tags, edits }: GetByIdsRelations = {},
-  ) {
+  getById(id: string, relations: GetByIdsRelations = {}) {
+    return this.getAssetQuery(relations).where('asset.id', '=', asUuid(id)).limit(1).executeTakeFirst();
+  }
+
+  async getByIdsForTimelineNotifications(ids: string[], ownerId: string) {
+    if (ids.length === 0) return [];
+    return this.getAssetQuery({
+      exifInfo: true,
+      owner: true,
+      faces: { person: true, viewingUserId: ownerId },
+      stack: { assets: true },
+      edits: true,
+      tags: true,
+    })
+      .where('asset.id', '=', anyUuid(ids))
+      .where('asset.ownerId', '=', ownerId)
+      .where('asset.status', '=', AssetStatus.Active)
+      .where('asset.deletedAt', 'is', null)
+      .where('asset.visibility', 'in', [AssetVisibility.Timeline, AssetVisibility.Archive])
+      .where((eb) =>
+        eb.or([
+          eb('asset.stackId', 'is', null),
+          eb.exists(
+            eb
+              .selectFrom('stack')
+              .select('id')
+              .whereRef('stack.id', '=', 'asset.stackId')
+              .where('stack.ownerId', '=', ownerId)
+              .whereRef('stack.primaryAssetId', '=', 'asset.id'),
+          ),
+        ]),
+      )
+      .execute();
+  }
+
+  private getAssetQuery({
+    exifInfo,
+    faces,
+    files,
+    library,
+    owner,
+    smartSearch,
+    stack,
+    tags,
+    edits,
+  }: GetByIdsRelations = {}) {
     return this.db
       .selectFrom('asset')
       .selectAll('asset')
-      .where('asset.id', '=', asUuid(id))
       .$if(!!exifInfo, withExif)
       .$if(!!faces, (qb) =>
         qb
@@ -1853,9 +1919,7 @@ export class AssetRepository {
       )
       .$if(!!files, (qb) => qb.select(withFiles))
       .$if(!!tags, (qb) => qb.select(withTags))
-      .$if(!!edits, (qb) => qb.select(withEdits))
-      .limit(1)
-      .executeTakeFirst();
+      .$if(!!edits, (qb) => qb.select(withEdits));
   }
 
   @GenerateSql({ params: [[DummyValue.UUID], {}] })
@@ -1895,16 +1959,21 @@ export class AssetRepository {
     if (ids.length === 0) {
       return [];
     }
-    const rows = await this.db
-      .updateTable('asset')
-      .where('id', '=', anyUuid(ids))
-      // Once irreversible deletion is claimed, even another Trash request must
-      // not make the row restorable again between the claim and removal.
-      .where('status', '!=', AssetStatus.Deleted)
-      .set(options)
-      .returning('id')
-      .execute();
-    return rows.map(({ id }) => id);
+    const update = async (tx: Kysely<DB>) => {
+      const stacks = await lockAssetStacks(tx, { assetIds: ids });
+      const rows = await tx
+        .updateTable('asset')
+        .where('id', '=', anyUuid(ids))
+        // Once irreversible deletion is claimed, even another Trash request must
+        // not make the row restorable again between the claim and removal.
+        .where('status', '!=', AssetStatus.Deleted)
+        .set(options)
+        .returning('id')
+        .execute();
+      await repairStackPrimaries(tx, stacks);
+      return rows.map(({ id }) => id);
+    };
+    return this.db.isTransaction ? update(this.db) : this.db.transaction().execute(update);
   }
 
   async claimDeletion(id: string, cleanup?: { reason: 'library'; libraryId: string } | { reason: 'motion' }) {
@@ -1992,17 +2061,30 @@ export class AssetRepository {
     await this.db.deleteFrom('asset').where('id', '=', asUuid(asset.id)).execute();
   }
 
-  async removeForDeletion(asset: { id: string }): Promise<boolean> {
+  async removeForDeletion(
+    asset: { id: string },
+    cleanupDerivatives?: (paths: string[], isReferenced: (path: string) => Promise<boolean>) => Promise<boolean>,
+  ): Promise<boolean> {
     return this.db.transaction().execute(async (tx) => {
+      // The same owner/path locks guard scanner, metadata and asset-file writes.
+      // Keep asset_file as the durable manifest until cleanup AND row removal commit.
+      const identity = await tx.selectFrom('asset').select('ownerId').where('id', '=', asset.id).executeTakeFirst();
+      if (!identity) return false;
+      await sql`select pg_advisory_xact_lock(hashtextextended(${identity.ownerId}, 731))`.execute(tx);
+      const current = await tx
+        .selectFrom('asset')
+        .select(['ownerId', 'status'])
+        .where('id', '=', asset.id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!current || current.ownerId !== identity.ownerId || current.status !== AssetStatus.Deleted) return false;
       const receipt = await tx
         .selectFrom('asset_deletion_tombstone')
         .selectAll()
         .where('assetId', '=', asset.id)
         .forUpdate()
         .executeTakeFirst();
-      if (receipt && receipt.state !== 'files-removed') {
-        return false;
-      }
+      if (receipt && (receipt.ownerId !== current.ownerId || receipt.state !== 'files-removed')) return false;
       if (receipt?.operationId === asset.id) {
         const companion = await tx
           .selectFrom('asset_deletion_tombstone')
@@ -2012,6 +2094,64 @@ export class AssetRepository {
           .where('state', '!=', 'complete')
           .executeTakeFirst();
         if (companion) return false;
+      }
+      if (receipt) {
+        const derivativeTypes = [
+          AssetFileType.Thumbnail,
+          AssetFileType.Preview,
+          AssetFileType.FullSize,
+          AssetFileType.EncodedVideo,
+        ];
+        const files = await tx
+          .selectFrom('asset_file')
+          .select('path')
+          .where('assetId', '=', asset.id)
+          .where('type', 'in', derivativeTypes)
+          .execute();
+        const paths = [...new Set(files.map(({ path }) => path))].sort();
+        const lockPaths = [
+          ...new Set(
+            paths.flatMap((path) => [
+              path,
+              isAbsolute(path) ? resolve(path) : resolve(StorageCore.getMediaLocation(), path),
+            ]),
+          ),
+        ].sort();
+        for (const path of lockPaths)
+          await sql`select pg_advisory_xact_lock(hashtextextended(${path}, 732))`.execute(tx);
+        const isReferenced = async (path: string): Promise<boolean> => {
+          // No original (including our own) and no Sidecar reference is exempt.
+          // Only the derivative rows of this exact asset may still reference it.
+          const original = await tx
+            .selectFrom('asset')
+            .select('id')
+            .where('originalPath', '=', path)
+            .executeTakeFirst();
+          if (original) return true;
+          const other = await tx
+            .selectFrom('asset_file')
+            .select('assetId')
+            .where('path', '=', path)
+            .where((eb) => eb.or([eb('assetId', '!=', asset.id), eb('type', 'not in', derivativeTypes)]))
+            .executeTakeFirst();
+          return !!other;
+        };
+        let cleaned = paths.length === 0;
+        if (!cleaned && cleanupDerivatives) {
+          try {
+            cleaned = await cleanupDerivatives(paths, isReferenced);
+          } catch {
+            cleaned = false;
+          }
+        }
+        if (!cleaned) {
+          await tx
+            .updateTable('asset_deletion_tombstone')
+            .set({ errorCode: 'DERIVATIVE_CLEANUP_FAILED' })
+            .where('assetId', '=', asset.id)
+            .execute();
+          return false;
+        }
       }
       const removed = await tx
         .deleteFrom('asset')
@@ -2044,21 +2184,7 @@ export class AssetRepository {
       .select(['id', 'libraryId'])
       .where('ownerId', '=', ownerId)
       .where('deletedAt', 'is not', null)
-      .where((eb) =>
-        eb.or([
-          eb('status', '=', AssetStatus.Trashed),
-          eb.and([
-            eb('status', '=', AssetStatus.Deleted),
-            eb.exists(
-              eb
-                .selectFrom('asset_deletion_tombstone')
-                .select('assetId')
-                .whereRef('assetId', '=', 'asset.id')
-                .where('state', '!=', 'complete'),
-            ),
-          ]),
-        ]),
-      )
+      .where('status', '=', AssetStatus.Trashed)
       .execute();
   }
 
@@ -2297,6 +2423,205 @@ export class AssetRepository {
       .execute();
   }
 
+  /** Commit the irreversible decision without reading or hashing original files. */
+  async acceptPermanentDeletion(ids: string[], ownerId: string) {
+    const requestedIds = [...new Set(ids)].sort();
+    if (requestedIds.length === 0) return [];
+    return this.db.transaction().execute(async (tx) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 731))`.execute(tx);
+      // Lock the selected snapshot before any intent is inserted. Restore uses
+      // the same owner lock and asset locks, so the whole acceptance wins or fails.
+      const selected = await tx
+        .selectFrom('asset')
+        .select(['id', 'livePhotoVideoId'])
+        .where('ownerId', '=', ownerId)
+        .where('id', 'in', requestedIds)
+        .orderBy('id')
+        .forUpdate()
+        .execute();
+      const companions = new Set(selected.map((asset) => asset.livePhotoVideoId).filter(Boolean));
+      // Still rows claim their exclusive motion resources first. If both were
+      // selected, the later companion resolves to the already committed intent.
+      const ordered = [...requestedIds].sort(
+        (left, right) => Number(companions.has(left)) - Number(companions.has(right)) || left.localeCompare(right),
+      );
+      for (const id of ordered) {
+        const receipt = await tx
+          .selectFrom('asset_deletion_tombstone')
+          .select('ownerId')
+          .where('assetId', '=', id)
+          .executeTakeFirst();
+        if (receipt) {
+          if (receipt.ownerId !== ownerId) throw new DeletionError('ASSET_NOT_OWNED');
+          continue; // Retrying an accepted decision is safe even after policy revocation.
+        }
+        await this.preparePermanentDeletionIntent(tx, id, ownerId);
+      }
+      const parents = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select('operationId')
+        .where('ownerId', '=', ownerId)
+        .where('assetId', 'in', requestedIds)
+        .execute();
+      const receipts = await tx
+        .selectFrom('asset_deletion_tombstone')
+        .select(['assetId', 'operationId', 'state', 'errorCode', 'scope'])
+        .where('ownerId', '=', ownerId)
+        .where('operationId', 'in', [...new Set(parents.map((receipt) => receipt.operationId))])
+        .orderBy('assetId')
+        .execute();
+      // Publish logical deletion only for the accept-only API, in the same
+      // transaction as all irreversible receipts. The legacy completion API
+      // retains its single physical DELETE audit. Retries repair a missing
+      // wake-up without generating duplicate logical events.
+      const audited = await tx
+        .selectFrom('asset_audit')
+        .select('assetId')
+        .where('ownerId', '=', ownerId)
+        .where(
+          'assetId',
+          'in',
+          receipts.map((receipt) => receipt.assetId),
+        )
+        .execute();
+      const auditedIds = new Set(audited.map((row) => row.assetId));
+      const missing = receipts.filter((receipt) => !auditedIds.has(receipt.assetId));
+      if (missing.length > 0) {
+        await tx
+          .insertInto('asset_audit')
+          .values(missing.map((receipt) => ({ assetId: receipt.assetId, ownerId })))
+          .execute();
+      }
+      return receipts;
+    });
+  }
+
+  private async preparePermanentDeletionIntent(
+    tx: Transaction<DB>,
+    id: string,
+    ownerId: string,
+    trashedBefore?: Date,
+    allowActive = false,
+  ) {
+    const existing = await tx
+      .selectFrom('asset_deletion_tombstone')
+      .selectAll()
+      .where('assetId', '=', id)
+      .executeTakeFirst();
+    if (existing) {
+      if (existing.ownerId !== ownerId) throw new DeletionError('ASSET_NOT_OWNED');
+      if (existing.state !== 'complete') {
+        const policy = await tx
+          .selectFrom('asset_deletion_policy')
+          .selectAll()
+          .where('ownerId', '=', ownerId)
+          .where('scope', '=', existing.scope)
+          .forShare()
+          .executeTakeFirst();
+        await this.verifyBoundPolicy(ownerId, existing.scope, policy, tx);
+      }
+      return;
+    }
+    const asset = await tx
+      .selectFrom('asset')
+      .selectAll()
+      .where('id', '=', id)
+      .where('ownerId', '=', ownerId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (
+      !asset ||
+      (asset.status !== AssetStatus.Trashed &&
+        (!(allowActive && asset.status === AssetStatus.Active) || asset.deletedAt || asset.isOffline)) ||
+      (trashedBefore && (!asset.deletedAt || new Date(asset.deletedAt).getTime() > trashedBefore.getTime()))
+    ) {
+      throw new DeletionError('ASSET_NOT_IN_TRASH');
+    }
+    const scope = asset.libraryId ?? 'managed';
+    const policy = await tx
+      .selectFrom('asset_deletion_policy')
+      .selectAll()
+      .where('ownerId', '=', ownerId)
+      .where('scope', '=', scope)
+      .forShare()
+      .executeTakeFirst();
+    if (!policy) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
+    await this.verifyBoundPolicy(ownerId, scope, policy, tx);
+    const targets = [asset];
+    if (asset.livePhotoVideoId) {
+      const parents = await tx
+        .selectFrom('asset')
+        .select('id')
+        .where('livePhotoVideoId', '=', asset.livePhotoVideoId)
+        .execute();
+      if (parents.length !== 1) throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
+      const motion = await tx
+        .selectFrom('asset')
+        .selectAll()
+        .where('id', '=', asset.livePhotoVideoId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
+        throw new DeletionError('MOTION_SCOPE_MISMATCH');
+      }
+      targets.push(motion);
+    }
+    const targetIds = targets.map((target) => target.id);
+    const sidecars = await tx
+      .selectFrom('asset_file')
+      .select('path')
+      .where('assetId', 'in', targetIds)
+      .where('type', '=', AssetFileType.Sidecar)
+      .execute();
+    // A known shared original must remain ordinary, restorable Trash. Keep
+    // the execution-time checks below for references added after this read.
+    await this.assertExclusiveOriginals(tx, targetIds, [
+      ...targets.map((target) => target.originalPath),
+      ...sidecars.map(({ path }) => path),
+    ]);
+    for (const target of targets) {
+      const aliases = await tx
+        .selectFrom('asset_duplicate_checksum')
+        .select('checksum')
+        .where('assetId', '=', target.id)
+        .where('ownerId', '=', ownerId)
+        .execute();
+      await tx
+        .insertInto('asset_deletion_tombstone')
+        .values({
+          assetId: target.id,
+          operationId: id,
+          ownerId,
+          libraryId: target.libraryId,
+          scope,
+          originalPath: target.originalPath,
+          checksum: target.checksum,
+          checksumAlgorithm: target.checksumAlgorithm,
+          contentChecksum: target.contentChecksum ?? Buffer.alloc(0),
+          aliases: aliases.map(({ checksum }) => checksum.toString('hex')),
+          authorization: {
+            mode: policy.authorizationMode,
+            actor: policy.authorizedBy,
+            recoveryProof: policy.recoveryProof,
+            policyUpdatedAt: new Date(policy.updatedAt).toISOString(),
+          },
+          files: [],
+          state: 'preparing',
+          errorCode: null,
+        })
+        .execute();
+    }
+    await tx
+      .updateTable('asset')
+      .set({ status: AssetStatus.Deleted, deletedAt: asset.deletedAt ?? new Date() })
+      .where(
+        'id',
+        'in',
+        targets.map((target) => target.id),
+      )
+      .execute();
+  }
+
   async preparePermanentDeletion(
     id: string,
     ownerId: string,
@@ -2327,123 +2652,7 @@ export class AssetRepository {
     // Commit intent before hashing large video. A timeout/restart can then query the actual server receipt.
     const preparation = this.db.transaction().execute(async (tx) => {
       await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 731))`.execute(tx);
-      const existing = await tx
-        .selectFrom('asset_deletion_tombstone')
-        .selectAll()
-        .where('assetId', '=', id)
-        .executeTakeFirst();
-      if (existing) {
-        if (existing.ownerId !== ownerId) throw new DeletionError('ASSET_NOT_OWNED');
-        if (existing.state !== 'complete') {
-          const policy = await tx
-            .selectFrom('asset_deletion_policy')
-            .selectAll()
-            .where('ownerId', '=', ownerId)
-            .where('scope', '=', existing.scope)
-            .forShare()
-            .executeTakeFirst();
-          await this.verifyBoundPolicy(ownerId, existing.scope, policy, tx);
-        }
-        return;
-      }
-      const asset = await tx
-        .selectFrom('asset')
-        .selectAll()
-        .where('id', '=', id)
-        .where('ownerId', '=', ownerId)
-        .forUpdate()
-        .executeTakeFirst();
-      if (
-        !asset ||
-        (asset.status !== AssetStatus.Trashed &&
-          (!(allowActive && asset.status === AssetStatus.Active) || asset.deletedAt || asset.isOffline)) ||
-        (trashedBefore && (!asset.deletedAt || new Date(asset.deletedAt).getTime() > trashedBefore.getTime()))
-      ) {
-        throw new DeletionError('ASSET_NOT_IN_TRASH');
-      }
-      const scope = asset.libraryId ?? 'managed';
-      const policy = await tx
-        .selectFrom('asset_deletion_policy')
-        .selectAll()
-        .where('ownerId', '=', ownerId)
-        .where('scope', '=', scope)
-        .forShare()
-        .executeTakeFirst();
-      if (!policy) throw new DeletionError('LIBRARY_DELETION_NOT_AUTHORIZED');
-      await this.verifyBoundPolicy(ownerId, scope, policy, tx);
-      const targets = [asset];
-      if (asset.livePhotoVideoId) {
-        const parents = await tx
-          .selectFrom('asset')
-          .select('id')
-          .where('livePhotoVideoId', '=', asset.livePhotoVideoId)
-          .execute();
-        if (parents.length !== 1) throw new DeletionError('ORIGINAL_SHARED_WITH_OTHER_ASSET');
-        const motion = await tx
-          .selectFrom('asset')
-          .selectAll()
-          .where('id', '=', asset.livePhotoVideoId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (!motion || motion.ownerId !== ownerId || motion.libraryId !== asset.libraryId) {
-          throw new DeletionError('MOTION_SCOPE_MISMATCH');
-        }
-        targets.push(motion);
-      }
-      const targetIds = targets.map((target) => target.id);
-      const sidecars = await tx
-        .selectFrom('asset_file')
-        .select('path')
-        .where('assetId', 'in', targetIds)
-        .where('type', '=', AssetFileType.Sidecar)
-        .execute();
-      // A known shared original must remain ordinary, restorable Trash. Keep
-      // the execution-time checks below for references added after this read.
-      await this.assertExclusiveOriginals(tx, targetIds, [
-        ...targets.map((target) => target.originalPath),
-        ...sidecars.map(({ path }) => path),
-      ]);
-      for (const target of targets) {
-        const aliases = await tx
-          .selectFrom('asset_duplicate_checksum')
-          .select('checksum')
-          .where('assetId', '=', target.id)
-          .where('ownerId', '=', ownerId)
-          .execute();
-        await tx
-          .insertInto('asset_deletion_tombstone')
-          .values({
-            assetId: target.id,
-            operationId: id,
-            ownerId,
-            libraryId: target.libraryId,
-            scope,
-            originalPath: target.originalPath,
-            checksum: target.checksum,
-            checksumAlgorithm: target.checksumAlgorithm,
-            contentChecksum: Buffer.alloc(0),
-            aliases: aliases.map(({ checksum }) => checksum.toString('hex')),
-            authorization: {
-              mode: policy.authorizationMode,
-              actor: policy.authorizedBy,
-              recoveryProof: policy.recoveryProof,
-              policyUpdatedAt: new Date(policy.updatedAt).toISOString(),
-            },
-            files: [],
-            state: 'preparing',
-            errorCode: null,
-          })
-          .execute();
-      }
-      await tx
-        .updateTable('asset')
-        .set({ status: AssetStatus.Deleted, deletedAt: asset.deletedAt ?? new Date() })
-        .where(
-          'id',
-          'in',
-          targets.map((target) => target.id),
-        )
-        .execute();
+      await this.preparePermanentDeletionIntent(tx, id, ownerId, trashedBefore, allowActive);
     });
     await preparation.catch(failPreparation);
     try {
@@ -3140,20 +3349,7 @@ export class AssetRepository {
       .$if(visibility === undefined, withDefaultVisibility)
       .$if(!!visibility, (qb) => qb.where('asset.visibility', '=', visibility!))
       .$if(isFavorite !== undefined, (qb) => qb.where('isFavorite', '=', isFavorite!))
-      .$if(!!isTrashed, (qb) =>
-        qb.where((eb) =>
-          eb.or([
-            eb('asset.status', '!=', AssetStatus.Deleted),
-            eb.exists(
-              eb
-                .selectFrom('asset_deletion_tombstone')
-                .select('assetId')
-                .whereRef('assetId', '=', 'asset.id')
-                .where('state', '!=', 'complete'),
-            ),
-          ]),
-        ),
-      )
+      .$if(!!isTrashed, (qb) => qb.where('asset.status', '=', AssetStatus.Trashed))
       .where('deletedAt', isTrashed ? 'is not' : 'is', null)
       .executeTakeFirstOrThrow();
   }
@@ -3391,6 +3587,7 @@ export class AssetRepository {
                     .where('stacked.deletedAt', 'is', null)
                     .where('stacked.visibility', '=', AssetVisibility.Timeline)
                     .groupBy('stacked.stackId')
+                    .having((eb) => eb.fn.countAll(), '>', 1)
                     .as('stacked_assets'),
                 (join) => join.onTrue(),
               )

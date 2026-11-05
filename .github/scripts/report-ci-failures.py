@@ -1,0 +1,159 @@
+"""Expose bounded failure evidence in check annotations; never change test status."""
+
+import argparse
+import json
+import subprocess
+from pathlib import Path
+
+ANNOTATION_LIMIT = 3000  # Runner annotations truncate messages at 4096 characters.
+
+
+def escape(value: str) -> str:
+    return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def report(title: str, message: str, *, level: str = "error") -> None:
+    # Keep each annotation bounded, and prevent test output becoming workflow commands.
+    title = escape(title).replace(",", "%2C").replace(":", "%3A")
+    print(f"::{level} title={title}::{escape(message[:ANNOTATION_LIMIT])}")
+
+
+def flutter(path: Path) -> None:
+    names = {}
+    output = {}
+    failures = set()
+    totals = {"success": 0, "failure": 0, "error": 0, "skipped": 0}
+    for line in path.read_text(errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # Flutter can emit tool progress before the JSON test stream.
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "testStart":
+            test = event["test"]
+            names[test["id"]] = test["name"]
+        elif event.get("type") == "print":
+            test_id = event.get("testID")
+            # Flutter widget failures put the assertion and source location in
+            # print events; their error event only says "See exception logs above".
+            combined = output.get(test_id, "") + "\n" + str(event.get("message", ""))
+            output[test_id] = (
+                combined
+                if len(combined) <= 12000
+                else combined[:6000] + "\n...\n" + combined[-5900:]
+            )
+        elif event.get("type") == "error":
+            test_id = event.get("testID")
+            title = names.get(test_id, "Flutter test failure")
+            failures.add(title)
+            evidence = (
+                str(event.get("error", ""))
+                + "\n"
+                + str(event.get("stackTrace", ""))
+                + output.get(test_id, "")
+            )
+            for index, offset in enumerate(
+                range(0, len(evidence), ANNOTATION_LIMIT), 1
+            ):
+                report(
+                    f"{title} (part {index})",
+                    evidence[offset : offset + ANNOTATION_LIMIT],
+                )
+        elif event.get("type") == "testDone":
+            name = names.get(event.get("testID"), "")
+            if name and not name.startswith("loading ") and not event.get("hidden"):
+                result = "skipped" if event.get("skipped") else event.get("result")
+                if result in totals:
+                    totals[result] += 1
+            output.pop(event.get("testID"), None)
+    report("Flutter result summary", json.dumps(totals), level="notice")
+    if failures:
+        report(
+            "Flutter failed test inventory", "\n".join(sorted(failures)), level="notice"
+        )
+
+
+def formatting() -> None:
+    paths = subprocess.check_output(
+        [
+            "git",
+            "diff",
+            "--name-only",
+            "-z",
+            "--",
+            "mobile/lib",
+            "mobile/test",
+            "mobile/integration_test",
+        ],
+        text=True,
+    ).split("\0")
+    paths = list(filter(None, paths))
+    # GitHub retains at most ten error annotations per step. Large patches can
+    # consume that budget before later files; preserve the inventory separately.
+    report("Dart formatter changed files", "\n".join(paths), level="notice")
+    for path in paths:
+        patch = subprocess.check_output(["git", "diff", "--", path], text=True)
+        for index, offset in enumerate(range(0, len(patch), ANNOTATION_LIMIT), 1):
+            report(
+                f"Dart formatting: {path} (part {index})",
+                patch[offset : offset + ANNOTATION_LIMIT],
+            )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=("flutter", "format", "build", "analysis", "android-build", "android-debug", "test-log", "setup", "api-smoke", "api-backend"))
+    parser.add_argument("path", nargs="?", type=Path)
+    args = parser.parse_args()
+    if args.mode == "format":
+        formatting()
+    elif args.mode == "flutter":
+        flutter(args.path)
+    elif args.mode in {"test-log", "api-smoke", "api-backend"}:
+        title = {
+            "test-log": "Medium suite failure",
+            "api-smoke": "API smoke operation failure",
+            "api-backend": "Disposable API backend evidence",
+        }[args.mode]
+        tail = args.path.read_text(errors="replace")[-ANNOTATION_LIMIT * 3:]
+        for index, offset in enumerate(range(0, len(tail), ANNOTATION_LIMIT), 1):
+            report(f"{title} (part {index})", tail[offset:offset + ANNOTATION_LIMIT])
+    elif args.mode == "setup":
+        report("CI toolchain/dependency setup failure", args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:])
+    elif args.mode in {"android-build", "android-debug"}:
+        title = "Unsigned Android build failed" if args.mode == "android-build" else "Emulator debug APK build failed"
+        tail = args.path.read_text(errors="replace")[-ANNOTATION_LIMIT * 3:]
+        for index, offset in enumerate(range(0, len(tail), ANNOTATION_LIMIT), 1):
+            report(f"{title} (part {index})", tail[offset:offset + ANNOTATION_LIMIT])
+    elif args.mode == "analysis":
+        lines = args.path.read_text(errors="replace").splitlines()
+        diagnostics = [
+            line
+            for line in lines
+            if any(
+                mark in line
+                for mark in (
+                    "error •",
+                    "warning •",
+                    "info •",
+                    "error -",
+                    "warning -",
+                    "info -",
+                )
+            )
+        ]
+        report("Dart analyzer diagnostics", "\n".join(diagnostics), level="notice")
+        for line in diagnostics[:10]:
+            report("Dart analyzer", line)
+        if not diagnostics:
+            report("Dart analyzer output", "\n".join(lines[-40:]))
+    else:
+        report(
+            "Disposable CI Docker build failed",
+            args.path.read_text(errors="replace")[-ANNOTATION_LIMIT:],
+        )
+
+
+if __name__ == "__main__":
+    main()

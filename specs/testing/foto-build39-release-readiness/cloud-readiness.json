@@ -1,0 +1,93 @@
+{
+  "checked_at_utc": "2026-11-05T18:39:48.347982+00:00",
+  "head": "fc1126dd4a283d7ab803c237d45914b3d60b5568",
+  "branch": "codex/foto-build38-unified-16",
+  "github_main": "b216af2be0dd5867c45221724f9612afff62abb8",
+  "hotfix_baseline": "ee05bc3f758d4cb6ddc15f5197415db0271dcf13",
+  "reported_production_sha": "54f335e2a28af2de6d485f5a53acb05934837324",
+  "production_sha_on_github": "HTTP 422 at previous check; does not negate the confirmed local HP commit",
+  "hp_checkout": "CONFIRMED_PRESENT_BY_USER_HP_RECEIPT",
+  "hp_signing_files": "CONFIRMED_PRESENT_ORIGINALS; CERTIFICATE_MATCH_PENDING",
+  "installed_samsung_package_certificate_version_code": "DEVICE_REQUIRED",
+  "cloud_signing_files_present": false,
+  "vpn_configured": false,
+  "ssh_agent_present": false,
+  "protected_scope_diffs_from_hotfix_baseline": {
+    "server": [],
+    "web": [],
+    "open-api": [],
+    "docker": [],
+    "deployment": [],
+    "machine-learning": [],
+    "inpainting": [],
+    "packages": [],
+    "package.json": [],
+    "pnpm-lock.yaml": [],
+    "pnpm-workspace.yaml": [],
+    "mobile/lib/domain/models": [],
+    "mobile/lib/data": [],
+    "mobile/lib/repositories": [],
+    "mobile/android": [],
+    "mobile/pubspec.yaml": [],
+    "mobile/pubspec.lock": []
+  },
+  "lens_one_tap": "NOT_IMPLEMENTED_NO_CONFIRMED_PUBLIC_LENS_CONTRACT",
+  "latest_android_native_ci": {
+    "run": 42001947910,
+    "head": "ee05bc3f758d4cb6ddc15f5197415db0271dcf13",
+    "conclusion": "success",
+    "unsigned_universal_apk": "success",
+    "native_motion_emulator": "success"
+  },
+  "current_head_android_ci": "NOT_RUN (iOS-only run has Android jobs skipped)",
+  "apk_release_status": "BLOCKED",
+  "backend_hotfix_requires_new_image": false,
+  "production_comparison": "HP local SHA is real and confirmed; ancestry/tree comparison awaits HP history output",
+  "source_version": "5.7.3+38",
+  "next_version_code_rule": "max(measured Build39 APK versionCode, measured installed Samsung versionCode) + 1",
+  "commands_executed": "read-only Git/GitHub/environment checks; no new build/sign/deploy",
+  "current_head_full_flutter_analyze": {
+    "issues": 0,
+    "exit_code": 0
+  },
+  "current_head_ui_regression": {
+    "passed": 1330,
+    "failed": 0,
+    "exit_code": 0,
+    "seconds": 187,
+    "known_test_shell_diagnostic": "Dart VM native-image finalizer callback diagnostic also exists in pre-audit logs; assertions/process pass"
+  },
+  "updated_at_utc": "2026-11-05T19:26:08.402422+00:00",
+  "hp_confirmed_state": {
+    "evidence_source": "user supplied direct HP observations",
+    "checkout": "/mnt/hp-data/foto-build38/source",
+    "branch": "foto-build39-hp-serial-tests",
+    "head": "54f335e2a28af2de6d485f5a53acb05934837324",
+    "working_tree_clean_at_observation": true,
+    "apk": "/home/doctoriceadm/FOTO-Build39.apk",
+    "apk_size_reported": "185 MB",
+    "signing_files": [
+      "mobile/android/key.properties",
+      "mobile/android/key.jks"
+    ],
+    "signing_files_exist": true
+  },
+  "hp_history_origin": {
+    "confirmed_local_commit": true,
+    "hp_branch_advertised_by_github": false,
+    "origin_not_inferred_from_http_422": true,
+    "parents_reflog_local_patches": "HP_OUTPUT_REQUIRED"
+  },
+  "release_blockers": [
+    "HP-only changes/ancestry need review before choosing Hotfix source",
+    "Build39 APK/key alias certificate match not yet measured",
+    "Installed Samsung package/certificate/versionCode not yet measured",
+    "Google Lens one-tap search remains not implemented"
+  ],
+  "preflight_tool_checks": {
+    "passed": 9,
+    "failed": 0,
+    "actual_hp_or_samsung_check": false
+  },
+  "latest_hp_access_attempt": "preflight-attempt.json"
+}

@@ -8,12 +8,18 @@ class FixedSegmentBuilder extends SegmentBuilder {
   final double tileHeight;
   final int columnCount;
   final bool denseLayout;
+  final double topCornerRadius;
+  final double headerTextScale;
+  final bool hideDateHeaders;
 
   const FixedSegmentBuilder({
     required super.buckets,
     required this.tileHeight,
     required this.columnCount,
     this.denseLayout = false,
+    this.topCornerRadius = 30,
+    this.headerTextScale = 1,
+    this.hideDateHeaders = false,
     super.spacing,
     super.groupBy,
   });
@@ -29,13 +35,22 @@ class FixedSegmentBuilder extends SegmentBuilder {
       final bucket = buckets[i];
 
       final assetCount = bucket.assetCount;
-      final rows = FixedRowLayout(
-        assetCount: assetCount,
-        columnCount: columnCount,
-        tileHeight: tileHeight,
-        spacing: spacing,
-        denseLayout: denseLayout,
-      );
+      final rows = denseLayout
+          ? FixedRowLayout.justified(
+              width: tileHeight * columnCount + spacing * (columnCount - 1),
+              aspectRatios: bucket.aspectRatios?.length == assetCount
+                  ? bucket.aspectRatios!
+                  : List.filled(assetCount, 1.0),
+              columnCount: columnCount,
+              spacing: spacing,
+            )
+          : FixedRowLayout(
+              assetCount: assetCount,
+              columnCount: columnCount,
+              tileHeight: tileHeight,
+              spacing: spacing,
+              denseLayout: denseLayout,
+            );
       final numberOfRows = rows.rowCount;
       final segmentCount = numberOfRows + 1;
 
@@ -43,14 +58,18 @@ class FixedSegmentBuilder extends SegmentBuilder {
       firstIndex += segmentCount;
       final segmentLastIndex = firstIndex - 1;
 
-      final timelineHeader = switch (groupBy) {
+      final timelineHeader = switch (hideDateHeaders ? GroupAssetsBy.none : groupBy) {
         GroupAssetsBy.year => HeaderType.year,
         GroupAssetsBy.month => HeaderType.month,
         GroupAssetsBy.day || GroupAssetsBy.auto =>
-          bucket is TimeBucket && bucket.date.month != previousDate?.month ? HeaderType.monthAndDay : HeaderType.day,
+          bucket is TimeBucket && (bucket.date.year != previousDate?.year || bucket.date.month != previousDate?.month)
+              ? HeaderType.monthAndDay
+              : HeaderType.day,
         GroupAssetsBy.none => HeaderType.none,
       };
-      final headerExtent = SegmentBuilder.headerExtent(timelineHeader);
+      final headerExtent = denseLayout
+          ? SegmentBuilder.headerExtent(timelineHeader, compact: true, textScale: headerTextScale)
+          : SegmentBuilder.headerExtent(timelineHeader);
 
       final segmentStartOffset = startOffset;
       startOffset += headerExtent + rows.extent + (denseLayout && numberOfRows > 0 ? spacing : 0);
@@ -67,6 +86,8 @@ class FixedSegmentBuilder extends SegmentBuilder {
           tileHeight: tileHeight,
           columnCount: columnCount,
           denseLayout: denseLayout,
+          rowLayout: rows,
+          topCornerRadius: topCornerRadius,
           headerExtent: headerExtent,
           spacing: spacing,
           header: timelineHeader,
