@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -79,7 +80,13 @@ Future<void> _capture(WidgetTester tester, GlobalKey key, String name, Map<Strin
   });
 }
 
-void main() {
+void main() => runUnifiedActionBarsTests();
+
+// Reuse the exact production-widget assertions for iOS, including its larger
+// notch/home-indicator insets and intentionally unavailable Android Lens action.
+void runUnifiedActionBarsTests({bool ios = false}) {
+  final topInset = ios ? 47.0 : 24.0;
+  final bottomInset = ios ? 34.0 : 24.0;
   setUpAll(() async {
     await (FontLoader('GoogleSans')..addFont(rootBundle.load('fonts/GoogleSans/GoogleSans-Regular.ttf'))).load();
     await (FontLoader('MaterialIcons')..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
@@ -98,6 +105,7 @@ void main() {
         'trash-selection',
       ]) {
         testWidgets('approved bars $section ${brightness.name} font=$scale', (tester) async {
+          expect(defaultTargetPlatform, ios ? TargetPlatform.iOS : TargetPlatform.android);
           final fixture = await PresentationContext.create();
           addTearDown(fixture.dispose);
           tester.view.physicalSize = const Size(390, 844);
@@ -172,7 +180,7 @@ void main() {
                   data: MediaQueryData(
                     size: const Size(390, 844),
                     alwaysUse24HourFormat: true,
-                    padding: const EdgeInsets.only(top: 24, bottom: 24),
+                    padding: EdgeInsets.only(top: topInset, bottom: bottomInset),
                     textScaler: TextScaler.linear(scale),
                   ),
                   child: RepaintBoundary(
@@ -224,11 +232,11 @@ void main() {
             );
             geometry['top'] = tester.getRect(topSurface);
           }
-          await _capture(tester, key, '$section-${brightness.name}-$scale', geometry);
+          await _capture(tester, key, '${ios ? 'ios-' : ''}$section-${brightness.name}-$scale', geometry);
           if (!_baseline) {
             expect(rect.left, 12);
             expect(rect.right, 378);
-            expect(rect.bottom, 820);
+            expect(rect.bottom, 844 - bottomInset);
             expect(rect.height, scale == 1 ? 52 : inInclusiveRange(52, 200));
             final actions = find.descendant(of: bottomSurface, matching: find.byType(SelectionToolbarAction));
             final boxes = <Rect>[];
@@ -260,10 +268,10 @@ void main() {
               expect(kinds, ['restore', 'trash']);
             }
             if (section == 'viewer-cloud') {
-              expect(kinds, ['share', 'edit', 'addAlbum', 'lens', 'trash']);
+              expect(kinds, ['share', 'edit', 'addAlbum', if (!ios) 'lens', 'trash']);
             }
             if (section == 'viewer-local') {
-              expect(kinds, ['share', 'lens', 'deviceTrash']);
+              expect(kinds, ['share', if (!ios) 'lens', 'deviceTrash']);
             }
             if (section == 'album-local') {
               expect(kinds, ['deviceTrash', 'share', 'upload', 'more']);
@@ -278,7 +286,7 @@ void main() {
                 matching: find.byWidgetPredicate((w) => w is FotoIconButton && w.kind == FotoIconKind.back),
               );
               expect(tester.getSize(back), const Size.square(48));
-              expect(tester.getRect(back).top, greaterThanOrEqualTo(24));
+              expect(tester.getRect(back).top, greaterThanOrEqualTo(topInset));
               final topSurface = find.descendant(of: top, matching: find.byType(ViewerControlSurface));
               if (scale == 1 && section != 'viewer-live-album') {
                 final painted = find.descendant(
@@ -288,7 +296,7 @@ void main() {
                   ),
                 );
                 expect(tester.getSize(painted.first).height, 44);
-                expect(tester.getSize(top).height, 76); // 24 status + 48 hit target + 4 padding.
+                expect(tester.getSize(top).height, topInset + 52); // status + 48 hit target + 4 padding.
               }
               final paragraph = tester.renderObject<RenderParagraph>(
                 find.descendant(
@@ -328,6 +336,7 @@ void main() {
   }
 
   testWidgets('local upload and remote OCR remain usable in viewer More', (tester) async {
+    expect(defaultTargetPlatform, ios ? TargetPlatform.iOS : TargetPlatform.android);
     final fixture = await PresentationContext.create();
     addTearDown(fixture.dispose);
     final local = LocalAssetFactory.create();
